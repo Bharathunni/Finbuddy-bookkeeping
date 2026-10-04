@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://bharathunni.github.io/finbuddy-bookkeeping/"><img alt="Try it in your browser" src="https://img.shields.io/badge/Try%20it-in%20your%20browser-C8992E?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
+  <a href="https://bharathunni.github.io/Finbuddy-bookkeeping/"><img alt="Try it in your browser" src="https://img.shields.io/badge/Try%20it-in%20your%20browser-C8992E?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
   <a href="https://github.com/bharathunni/finbuddy-bookkeeping/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/bharathunni/finbuddy-bookkeeping/ci.yml?branch=main&style=for-the-badge&label=build"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Android%207.0%2B-0A2540?style=for-the-badge&logo=android">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0A2540?style=for-the-badge"></a>
@@ -17,7 +17,7 @@ FinBuddy is an offline-first, double-entry bookkeeping app for Android, designed
 
 It is built for freelancers, consultants, small business owners and finance-minded individuals who want real books, not a glorified expense tracker.
 
-> **[Try it in your browser](https://bharathunni.github.io/finbuddy-bookkeeping/)**, no install. The hosted demo opens on synthetic sample books for a fictional firm; anything you change stays in your browser. Download the sample bank CSV from the demo banner, import it under **Bank Import**, post it, then import it again to watch every line get caught as a duplicate.
+> **[Try it in your browser](https://bharathunni.github.io/Finbuddy-bookkeeping/)**, no install. The hosted demo opens on synthetic sample books for a fictional firm; anything you change stays in your browser. Download the sample bank CSV from the demo banner, import it under **Bank Import**, post it, then import it again to watch every line get caught as a duplicate.
 
 ---
 
@@ -99,7 +99,7 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 
 ## Try it / install
 
-- **Browser (no install):** [bharathunni.github.io/finbuddy-bookkeeping](https://bharathunni.github.io/finbuddy-bookkeeping/). Synthetic sample books, stored only in your browser.
+- **Browser (no install):** [bharathunni.github.io/Finbuddy-bookkeeping](https://bharathunni.github.io/Finbuddy-bookkeeping/). Synthetic sample books, stored only in your browser.
 - **Android:** every CI run on `main` builds a debug APK, downloadable from the run's **Artifacts** (`FinBuddy-debug-apk`) on the [Actions tab](https://github.com/bharathunni/finbuddy-bookkeeping/actions/workflows/ci.yml). Sideload on Android 7.0 or later and allow installation from this source. Or build it yourself (below).
 - **Your own data in the browser:** run `npm run dev` locally, then **Settings > Backup & data > Restore** with [`docs/demo-books.json`](docs/demo-books.json) or your own backup, and try importing [`docs/sample-bank-statement.csv`](docs/sample-bank-statement.csv).
 
