@@ -1,0 +1,823 @@
+{
+  "v": 2,
+  "company": {
+    "name": "Demo Advisory LLP",
+    "fyStart": "2026-04-01",
+    "booksFrom": "2026-04-01",
+    "lockDate": "2026-06-30",
+    "features": {
+      "gst": true
+    }
+  },
+  "groups": [
+    {
+      "id": "cap",
+      "name": "Capital Account",
+      "nature": "Liability",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "res",
+      "name": "Reserves & Surplus",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "cap"
+    },
+    {
+      "id": "ca",
+      "name": "Current Assets",
+      "nature": "Asset",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "bank",
+      "name": "Bank Accounts",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "cash",
+      "name": "Cash-in-hand",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "dep",
+      "name": "Deposits (Asset)",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "loanadv",
+      "name": "Loans & Advances (Asset)",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "stock",
+      "name": "Stock-in-hand",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "debtors",
+      "name": "Sundry Debtors",
+      "nature": "Asset",
+      "pl": null,
+      "parent": "ca"
+    },
+    {
+      "id": "cl",
+      "name": "Current Liabilities",
+      "nature": "Liability",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "tax",
+      "name": "Duties & Taxes",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "cl"
+    },
+    {
+      "id": "prov",
+      "name": "Provisions",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "cl"
+    },
+    {
+      "id": "creditors",
+      "name": "Sundry Creditors",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "cl"
+    },
+    {
+      "id": "fa",
+      "name": "Fixed Assets",
+      "nature": "Asset",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "inv",
+      "name": "Investments",
+      "nature": "Asset",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "loanliab",
+      "name": "Loans (Liability)",
+      "nature": "Liability",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "bankod",
+      "name": "Bank OD A/c",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "loanliab"
+    },
+    {
+      "id": "secured",
+      "name": "Secured Loans",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "loanliab"
+    },
+    {
+      "id": "unsecured",
+      "name": "Unsecured Loans",
+      "nature": "Liability",
+      "pl": null,
+      "parent": "loanliab"
+    },
+    {
+      "id": "suspense",
+      "name": "Suspense A/c",
+      "nature": "Liability",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "miscexp",
+      "name": "Misc. Expenses (Asset)",
+      "nature": "Asset",
+      "pl": null,
+      "parent": null
+    },
+    {
+      "id": "sales",
+      "name": "Sales Accounts",
+      "nature": "Income",
+      "pl": "Trading",
+      "parent": null
+    },
+    {
+      "id": "purchase",
+      "name": "Purchase Accounts",
+      "nature": "Expense",
+      "pl": "Trading",
+      "parent": null
+    },
+    {
+      "id": "dinc",
+      "name": "Direct Incomes",
+      "nature": "Income",
+      "pl": "Trading",
+      "parent": null
+    },
+    {
+      "id": "dexp",
+      "name": "Direct Expenses",
+      "nature": "Expense",
+      "pl": "Trading",
+      "parent": null
+    },
+    {
+      "id": "iinc",
+      "name": "Indirect Incomes",
+      "nature": "Income",
+      "pl": "PL",
+      "parent": null
+    },
+    {
+      "id": "iexp",
+      "name": "Indirect Expenses",
+      "nature": "Expense",
+      "pl": "PL",
+      "parent": null
+    }
+  ],
+  "ledgers": [
+    {
+      "id": "9vjl1xc",
+      "name": "Cash",
+      "group": "cash",
+      "ob": 80000,
+      "drcr": "Dr"
+    },
+    {
+      "id": "10gul07",
+      "name": "HDFC Bank",
+      "group": "bank",
+      "ob": 520000,
+      "drcr": "Dr"
+    },
+    {
+      "id": "qqvy2uq",
+      "name": "Capital A/c",
+      "group": "cap",
+      "ob": 600000,
+      "drcr": "Cr"
+    },
+    {
+      "id": "ndc7mtf",
+      "name": "Sales",
+      "group": "sales",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "fthvj42",
+      "name": "Purchases",
+      "group": "purchase",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "4or09cz",
+      "name": "Bank Charges",
+      "group": "iexp",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "3hm32jh",
+      "name": "Salaries",
+      "group": "iexp",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "e0s2bk4",
+      "name": "Rent",
+      "group": "iexp",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "dct7ufl",
+      "name": "Professional Fees",
+      "group": "iinc",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "iv6zjkm",
+      "name": "Interest Received",
+      "group": "iinc",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "6pfo3tf",
+      "name": "Sundry Debtors (control)",
+      "group": "debtors",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "alh3sg4",
+      "name": "Sundry Creditors (control)",
+      "group": "creditors",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "0lsabj6",
+      "name": "Mehta Traders",
+      "group": "debtors",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "sh3qizq",
+      "name": "Office Supplies Co.",
+      "group": "creditors",
+      "ob": 0,
+      "drcr": "Cr"
+    },
+    {
+      "id": "ihat5cq",
+      "name": "Internet & Phone",
+      "group": "iexp",
+      "ob": 0,
+      "drcr": "Dr"
+    },
+    {
+      "id": "6nkinz9",
+      "name": "Laptop",
+      "group": "fa",
+      "ob": 0,
+      "drcr": "Dr"
+    }
+  ],
+  "vouchers": [
+    {
+      "id": "qd8cjcx",
+      "type": "Receipt",
+      "date": "2026-04-08",
+      "no": 1,
+      "narration": "Audit fee, ABC Pvt Ltd",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 150000,
+          "cr": ""
+        },
+        {
+          "ledger": "dct7ufl",
+          "dr": "",
+          "cr": 150000
+        }
+      ]
+    },
+    {
+      "id": "6cg9a26",
+      "type": "Payment",
+      "date": "2026-04-30",
+      "no": 1,
+      "narration": "April rent",
+      "entries": [
+        {
+          "ledger": "e0s2bk4",
+          "dr": 35000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 35000
+        }
+      ]
+    },
+    {
+      "id": "oii584h",
+      "type": "Payment",
+      "date": "2026-04-30",
+      "no": 2,
+      "narration": "April salaries",
+      "entries": [
+        {
+          "ledger": "3hm32jh",
+          "dr": 90000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 90000
+        }
+      ]
+    },
+    {
+      "id": "1b4mzwv",
+      "type": "Sales",
+      "date": "2026-05-12",
+      "no": 1,
+      "narration": "Advisory retainer, Mehta Traders",
+      "entries": [
+        {
+          "ledger": "0lsabj6",
+          "dr": 240000,
+          "cr": ""
+        },
+        {
+          "ledger": "ndc7mtf",
+          "dr": "",
+          "cr": 240000
+        }
+      ]
+    },
+    {
+      "id": "bksp8hv",
+      "type": "Purchase",
+      "date": "2026-05-20",
+      "no": 1,
+      "narration": "Stationery & consumables",
+      "entries": [
+        {
+          "ledger": "fthvj42",
+          "dr": 42000,
+          "cr": ""
+        },
+        {
+          "ledger": "sh3qizq",
+          "dr": "",
+          "cr": 42000
+        }
+      ]
+    },
+    {
+      "id": "mxgezi8",
+      "type": "Contra",
+      "date": "2026-06-02",
+      "no": 1,
+      "narration": "Cash withdrawn for petty expenses",
+      "entries": [
+        {
+          "ledger": "9vjl1xc",
+          "dr": 25000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 25000
+        }
+      ]
+    },
+    {
+      "id": "knfbypy",
+      "type": "Receipt",
+      "date": "2026-06-15",
+      "no": 2,
+      "narration": "Part payment, Mehta Traders",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 180000,
+          "cr": ""
+        },
+        {
+          "ledger": "0lsabj6",
+          "dr": "",
+          "cr": 180000
+        }
+      ]
+    },
+    {
+      "id": "cp60jdg",
+      "type": "Payment",
+      "date": "2026-06-30",
+      "no": 3,
+      "narration": "Q1 bank charges",
+      "entries": [
+        {
+          "ledger": "4or09cz",
+          "dr": 1180,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 1180
+        }
+      ]
+    },
+    {
+      "id": "dsffks1",
+      "type": "Payment",
+      "date": "2026-07-05",
+      "no": 4,
+      "narration": "Laptop purchase",
+      "entries": [
+        {
+          "ledger": "6nkinz9",
+          "dr": 95000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 95000
+        }
+      ]
+    },
+    {
+      "id": "6t4qq07",
+      "type": "Receipt",
+      "date": "2026-07-22",
+      "no": 3,
+      "narration": "Tax consultancy, R. Iyer",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 85000,
+          "cr": ""
+        },
+        {
+          "ledger": "dct7ufl",
+          "dr": "",
+          "cr": 85000
+        }
+      ]
+    },
+    {
+      "id": "ks8dv4i",
+      "type": "Payment",
+      "date": "2026-08-10",
+      "no": 5,
+      "narration": "Office Supplies Co. settled",
+      "entries": [
+        {
+          "ledger": "sh3qizq",
+          "dr": 42000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 42000
+        }
+      ]
+    },
+    {
+      "id": "6k2pzl8",
+      "type": "Payment",
+      "date": "2026-08-31",
+      "no": 6,
+      "narration": "Broadband + mobile",
+      "entries": [
+        {
+          "ledger": "ihat5cq",
+          "dr": 3500,
+          "cr": ""
+        },
+        {
+          "ledger": "9vjl1xc",
+          "dr": "",
+          "cr": 3500
+        }
+      ]
+    },
+    {
+      "id": "y1va5dl",
+      "type": "Receipt",
+      "date": "2026-09-18",
+      "no": 4,
+      "narration": "FD interest credited",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 12400,
+          "cr": ""
+        },
+        {
+          "ledger": "iv6zjkm",
+          "dr": "",
+          "cr": 12400
+        }
+      ]
+    },
+    {
+      "id": "ewoz1jr",
+      "type": "Sales",
+      "date": "2026-09-25",
+      "no": 2,
+      "narration": "Annual compliance retainer, Mehta Traders",
+      "entries": [
+        {
+          "ledger": "0lsabj6",
+          "dr": 320000,
+          "cr": ""
+        },
+        {
+          "ledger": "ndc7mtf",
+          "dr": "",
+          "cr": 320000
+        }
+      ]
+    },
+    {
+      "id": "o8zpx29",
+      "type": "Receipt",
+      "date": "2026-09-29",
+      "no": 5,
+      "narration": "Mehta Traders, against retainer",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 200000,
+          "cr": ""
+        },
+        {
+          "ledger": "0lsabj6",
+          "dr": "",
+          "cr": 200000
+        }
+      ]
+    },
+    {
+      "id": "ln0msbo",
+      "type": "Payment",
+      "date": "2026-09-30",
+      "no": 7,
+      "narration": "Q2 rent + salaries",
+      "entries": [
+        {
+          "ledger": "e0s2bk4",
+          "dr": 105000,
+          "cr": ""
+        },
+        {
+          "ledger": "3hm32jh",
+          "dr": 270000,
+          "cr": ""
+        },
+        {
+          "ledger": "10gul07",
+          "dr": "",
+          "cr": 375000
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "zfm0m8q",
+      "kw": "rent",
+      "ledger": "e0s2bk4"
+    },
+    {
+      "id": "aegi0d5",
+      "kw": "salary",
+      "ledger": "3hm32jh"
+    },
+    {
+      "id": "yur4yp5",
+      "kw": "chrg",
+      "ledger": "4or09cz"
+    }
+  ],
+  "audit": [
+    {
+      "id": "0cnr5c5",
+      "ts": "2026-09-30T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 7,
+      "date": "2026-09-30",
+      "amount": 375000,
+      "note": "",
+      "detail": "Dr Rent 1,05,000.00 \u00b7 Dr Salaries 2,70,000.00 \u00b7 Cr HDFC Bank 3,75,000.00"
+    },
+    {
+      "id": "kxe19hn",
+      "ts": "2026-09-29T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 5,
+      "date": "2026-09-29",
+      "amount": 200000,
+      "note": "",
+      "detail": "Dr HDFC Bank 2,00,000.00 \u00b7 Cr Mehta Traders 2,00,000.00"
+    },
+    {
+      "id": "mjrgma7",
+      "ts": "2026-09-25T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Sales",
+      "no": 2,
+      "date": "2026-09-25",
+      "amount": 320000,
+      "note": "",
+      "detail": "Dr Mehta Traders 3,20,000.00 \u00b7 Cr Sales 3,20,000.00"
+    },
+    {
+      "id": "mi3v9tz",
+      "ts": "2026-09-18T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 4,
+      "date": "2026-09-18",
+      "amount": 12400,
+      "note": "",
+      "detail": "Dr HDFC Bank 12,400.00 \u00b7 Cr Interest Received 12,400.00"
+    },
+    {
+      "id": "5bn9kb3",
+      "ts": "2026-08-31T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 6,
+      "date": "2026-08-31",
+      "amount": 3500,
+      "note": "",
+      "detail": "Dr Internet & Phone 3,500.00 \u00b7 Cr Cash 3,500.00"
+    },
+    {
+      "id": "otwevq1",
+      "ts": "2026-08-10T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 5,
+      "date": "2026-08-10",
+      "amount": 42000,
+      "note": "",
+      "detail": "Dr Office Supplies Co. 42,000.00 \u00b7 Cr HDFC Bank 42,000.00"
+    },
+    {
+      "id": "8qqslri",
+      "ts": "2026-07-22T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 3,
+      "date": "2026-07-22",
+      "amount": 85000,
+      "note": "",
+      "detail": "Dr HDFC Bank 85,000.00 \u00b7 Cr Professional Fees 85,000.00"
+    },
+    {
+      "id": "27f6e64",
+      "ts": "2026-07-05T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 4,
+      "date": "2026-07-05",
+      "amount": 95000,
+      "note": "",
+      "detail": "Dr Laptop 95,000.00 \u00b7 Cr HDFC Bank 95,000.00"
+    },
+    {
+      "id": "mbzuylb",
+      "ts": "2026-06-30T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 3,
+      "date": "2026-06-30",
+      "amount": 1180,
+      "note": "",
+      "detail": "Dr Bank Charges 1,180.00 \u00b7 Cr HDFC Bank 1,180.00"
+    },
+    {
+      "id": "kr7301c",
+      "ts": "2026-06-15T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 2,
+      "date": "2026-06-15",
+      "amount": 180000,
+      "note": "",
+      "detail": "Dr HDFC Bank 1,80,000.00 \u00b7 Cr Mehta Traders 1,80,000.00"
+    },
+    {
+      "id": "tfw91v6",
+      "ts": "2026-06-02T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Contra",
+      "no": 1,
+      "date": "2026-06-02",
+      "amount": 25000,
+      "note": "",
+      "detail": "Dr Cash 25,000.00 \u00b7 Cr HDFC Bank 25,000.00"
+    },
+    {
+      "id": "91prb5a",
+      "ts": "2026-05-20T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Purchase",
+      "no": 1,
+      "date": "2026-05-20",
+      "amount": 42000,
+      "note": "",
+      "detail": "Dr Purchases 42,000.00 \u00b7 Cr Office Supplies Co. 42,000.00"
+    },
+    {
+      "id": "9fwbswc",
+      "ts": "2026-05-12T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Sales",
+      "no": 1,
+      "date": "2026-05-12",
+      "amount": 240000,
+      "note": "",
+      "detail": "Dr Mehta Traders 2,40,000.00 \u00b7 Cr Sales 2,40,000.00"
+    },
+    {
+      "id": "j8bdvy7",
+      "ts": "2026-04-30T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 2,
+      "date": "2026-04-30",
+      "amount": 90000,
+      "note": "",
+      "detail": "Dr Salaries 90,000.00 \u00b7 Cr HDFC Bank 90,000.00"
+    },
+    {
+      "id": "2y4t424",
+      "ts": "2026-04-30T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Payment",
+      "no": 1,
+      "date": "2026-04-30",
+      "amount": 35000,
+      "note": "",
+      "detail": "Dr Rent 35,000.00 \u00b7 Cr HDFC Bank 35,000.00"
+    },
+    {
+      "id": "yprzx35",
+      "ts": "2026-04-08T10:15:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 1,
+      "date": "2026-04-08",
+      "amount": 150000,
+      "note": "",
+      "detail": "Dr HDFC Bank 1,50,000.00 \u00b7 Cr Professional Fees 1,50,000.00"
+    }
+  ]
+}

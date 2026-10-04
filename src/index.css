@@ -1,0 +1,11 @@
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #eef1ec; -webkit-text-size-adjust: 100%; }
+#root { max-width: 1100px; margin: 0 auto; padding: 8px; }
+@media (max-width: 700px) { #root { padding: 0; } }
+/* Two-column report/dashboard grids stack on phones; wide tables scroll inside their card. */
+@media (max-width: 700px) { .fb-split { grid-template-columns: minmax(0, 1fr) !important; } }
+@media (max-width: 700px) {
+  .fb-shell { min-height: 100dvh !important; border-radius: 0 !important; border: 0 !important; }
+  .fb-shell-inner { min-height: 100dvh !important; }
+}
