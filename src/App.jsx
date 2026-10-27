@@ -19,6 +19,7 @@ import {
   detectDateOrder, autoMap, statementRows, statementClosing, statementOpening, statementStart, addDays, statementEnd, bankDupCounts, findDuplicates, matchRule,
 } from "./engine.js";
 import { DEMO, KEY } from "./config.js";
+import { encryptBackup, decryptBackup, isEncryptedBackup } from "./backupCrypto.js";
 const IS_NATIVE = (() => { try { return Capacitor.isNativePlatform(); } catch { return false; } })();
 
 /* =========================================================================
@@ -939,6 +940,14 @@ function SettingsView({ db, save, flash, ui }) {
 
   const toggleGst = (on) => { let next = { ...db, company: { ...db.company, features: { ...db.company.features, gst: on } }, audit: logEvent(db, "edit", "GST helper", on ? "Enabled" : "Disabled") }; if (on) next = ensureGstLedgers(next); save(next); flash(on ? "GST enabled — helper appears on Sales/Purchase, tax ledgers created" : "GST disabled"); };
 
+  const exportEncrypted = async () => {
+    const pass = await ui.show({ title: "Encrypted backup", node: <PassphraseForm confirm onDone={ui.close} /> });
+    if (!pass) return;
+    flash("Encrypting…");
+    const box = await encryptBackup(JSON.stringify(db), pass);
+    const ok = await deliverFile(`finbuddy-backup-${todayStr()}-encrypted.json`, JSON.stringify(box), "application/json", "FinBuddy encrypted backup");
+    flash(ok ? (IS_NATIVE ? "Encrypted backup ready, choose where to save" : "Encrypted backup downloaded") : "Could not save the backup");
+  };
   const exportJson = async () => {
     const text = JSON.stringify(db, null, 2);
     const filename = `finbuddy-backup-${todayStr()}.json`;
@@ -950,6 +959,12 @@ function SettingsView({ db, save, flash, ui }) {
     const r = new FileReader();
     r.onload = async () => {
       let d; try { d = JSON.parse(r.result); } catch { return ui.alert({ title: "Restore failed", message: "This file is not valid JSON. Your books were not changed." }); }
+      if (isEncryptedBackup(d)) {
+        const pass = await ui.show({ title: "Encrypted backup", node: <PassphraseForm onDone={ui.close} /> });
+        if (!pass) return;
+        try { d = JSON.parse(await decryptBackup(d, pass)); }
+        catch (err) { return ui.alert({ title: "Restore failed", message: `${err.message}. Your books were not changed.` }); }
+      }
       const why = backupError(d);
       if (why) return ui.alert({ title: "Restore failed", message: `${why}. Your books were not changed.` });
       const ok = await ui.confirm({ title: "Restore backup", message: `Replace your current books (${db.vouchers.length} vouchers) with this backup (${(d.vouchers || []).length} vouchers, ${d.company?.name || "unnamed"})? Export a backup of the current books first if you may need them.`, danger: true, ok: "Replace books" });
@@ -964,7 +979,7 @@ function SettingsView({ db, save, flash, ui }) {
 
   return (
     <div>
-      <H title="Settings" sub="All data is stored on this device and autosaves on every change. Uninstalling wipes it — export a JSON backup to move your books to another device." />
+      <H title="Settings" sub="All data is stored on this device and autosaves on every change. Uninstalling wipes it, so keep an encrypted backup somewhere safe (Drive, email to yourself) and use it to move your books to another device." />
       <Card title="Company & financial year">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div><Lbl>Name</Lbl><Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { const n = name.trim() || "My Company"; if (n !== db.company.name) setCompany({ name: n }, "Company name", `"${db.company.name}" → "${n}"`); }} style={{ width: 220 }} /></div>
@@ -988,8 +1003,9 @@ function SettingsView({ db, save, flash, ui }) {
       </Card>
       <Card title="Backup & data">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Btn tone="dark" onClick={exportJson}><Download size={15} /> Export JSON</Btn>
-          <input ref={fileRef} type="file" accept="application/json" onChange={importJson} style={{ display: "none" }} />
+          <Btn tone="dark" onClick={exportEncrypted}><Lock size={15} /> Encrypted backup</Btn>
+          <Btn tone="ghost" onClick={exportJson}><Download size={15} /> Plain JSON</Btn>
+          <input ref={fileRef} type="file" accept=".json,application/json" onChange={importJson} style={{ display: "none" }} />
           <Btn tone="ghost" onClick={() => fileRef.current?.click()}><Upload size={15} /> Restore</Btn>
           <Btn tone="danger" onClick={reset}><AlertTriangle size={15} /> Reset company</Btn>
         </div>
@@ -997,6 +1013,22 @@ function SettingsView({ db, save, flash, ui }) {
       </Card>
     </div>
   );
+}
+function PassphraseForm({ confirm, onDone }) {
+  const [p1, setP1] = useState(""); const [p2, setP2] = useState("");
+  const err = !p1 ? "" : confirm && p1.length < 8 ? "Use at least 8 characters" : confirm && p2 && p1 !== p2 ? "Passphrases do not match" : "";
+  const ready = p1 && !err && (!confirm || p1 === p2);
+  const submit = () => ready && onDone(p1);
+  return <div>
+    <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5, marginBottom: 10 }}>{confirm ? "Choose a passphrase. It is never stored: without it this backup cannot be opened by anyone, including you." : "Enter the passphrase this backup was made with."}</div>
+    <Lbl>Passphrase</Lbl><Input type="password" autoFocus value={p1} onChange={(e) => setP1(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ width: "100%" }} />
+    {confirm && <div style={{ marginTop: 8 }}><Lbl>Repeat passphrase</Lbl><Input type="password" value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ width: "100%" }} /></div>}
+    {err && <div style={{ fontSize: 12, color: C.loss, marginTop: 8 }}>{err}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+      <Btn tone="ghost" size="sm" onClick={() => onDone(null)}>Cancel</Btn>
+      <Btn size="sm" disabled={!ready} onClick={submit}>{confirm ? "Encrypt & save" : "Unlock"}</Btn>
+    </div>
+  </div>;
 }
 function BackupText({ text }) {
   const ref = useRef();

@@ -23,6 +23,7 @@ All notable changes to FinBuddy are documented here. Format follows [Keep a Chan
 
 ### Added
 - Audit trail now records changes to ledgers, opening balances, auto-rules, period lock, books-beginning date, company name, GST setting, restore and reset.
+- Encrypted backup: AES-256-GCM with a passphrase-derived key; restore detects encrypted files and asks for the passphrase.
 - Excel / CSV export of Trial Balance, P&L, Balance Sheet, ledger statements and the Day Book.
 - Rename a ledger or move it to another group from Masters.
 - Period lock now also blocks opening balance changes and regrouping ledgers used in the locked period; clearing it or moving it earlier asks for confirmation.

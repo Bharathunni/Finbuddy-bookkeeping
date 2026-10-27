@@ -94,7 +94,7 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 - Data is stored on-device (Android SharedPreferences via Capacitor, mirrored to WebView storage) and **autosaves on every change**. If a save fails, the app says so instead of failing silently. If stored books ever cannot be read, the app offers them as a download instead of starting fresh over them.
 - Android's own device backup (Google account backup) may include the app's data, like any other app's.
 - **Restore** checks the backup file before touching your books and asks before replacing them.
-- **JSON backup and restore** through the Android share sheet, so you can move books between devices or keep an off-device copy.
+- **Encrypted backup** (AES-256-GCM, key from your passphrase via PBKDF2-SHA256, 600,000 iterations) through the Android share sheet, so an off-device copy in Drive or email is unreadable without the passphrase. The passphrase is never stored. Plain JSON export is still available.
 
 ### Usability
 - Responsive layout: full sidebar on tablets and desktop, compact icon rail on phones.
@@ -200,7 +200,7 @@ For a Play Store release build, create a keystore and configure `signingConfigs`
 - [ ] Bill-wise outstanding and ageing for debtors and creditors
 - [ ] GSTR-1 / GSTR-3B summary export
 - [ ] PDF export of final accounts
-- [ ] Optional encrypted backup to user-chosen cloud storage
+- [ ] Automatic scheduled backup to user-chosen cloud storage
 - [ ] Multi-company support
 
 ---
