@@ -22,6 +22,9 @@ All notable changes to FinBuddy are documented here. Format follows [Keep a Chan
 - `@capacitor/android` 8.5.3 fixes GHSA-rvm3-566m-v7fv (critical).
 
 ### Added
+- Audit trail now records changes to ledgers, opening balances, auto-rules, period lock, books-beginning date, company name, GST setting, restore and reset.
+- Rename a ledger or move it to another group from Masters.
+- Period lock now also blocks opening balance changes and regrouping ledgers used in the locked period; clearing it or moving it earlier asks for confirmation.
 - Credit Cards group; card and overdraft ledgers can be imported into, used in Contra, and show as "Cards & OD owed" on the dashboard.
 - Single-column Amount statements, with or without a Dr/Cr column.
 - Statement opening balance check, so a difference is traced to before or within the statement.

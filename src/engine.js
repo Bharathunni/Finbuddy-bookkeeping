@@ -333,3 +333,25 @@ export function matchRule(db, narr) {
   const hit = db.rules.find((r) => r.ledger && r.kw && exists.has(r.ledger) && n.includes(r.kw));
   return hit ? hit.ledger : "";
 }
+
+/* ---------- audit events for masters and settings ---------- */
+// Voucher events carry vtype / no / amount; these carry a subject ("Ledger: Rent", "Period lock").
+export function logEvent(db, action, subject, detail, now = new Date()) {
+  return [{ id: uid(), ts: localStamp(now), kind: "master", action, subject, detail }, ...(db.audit || [])];
+}
+export const balText = (ob, drcr) => `${inr(round2(Number(ob) || 0))} ${drcr || "Dr"}`;
+
+/* ---------- period lock over masters ----------
+   An opening balance sits before every period, so changing it rewrites locked periods.
+   Regrouping moves a ledger between P&L and Balance Sheet heads, which also rewrites them
+   if the ledger carries an opening balance or a voucher on or before the lock date. */
+export function openingLockReason(db) {
+  return db.company.lockDate ? `Books are locked up to ${db.company.lockDate}; an opening balance changes every locked period. Clear the period lock first.` : "";
+}
+export function regroupLockReason(db, ledger) {
+  const lock = db.company.lockDate; if (!lock) return "";
+  const used = (Number(ledger.ob) || 0) !== 0 || db.vouchers.some((v) => v.date <= lock && v.entries.some((e) => e.ledger === ledger.id));
+  return used ? `${ledger.name} has entries in the locked period (up to ${lock}); moving it to another group would change those reports. Clear the period lock first.` : "";
+}
+// Moving the lock earlier or clearing it reopens filed periods, so it needs an explicit confirmation.
+export function lockLoosens(oldLock, newLock) { return !!oldLock && (!newLock || newLock < oldLock); }

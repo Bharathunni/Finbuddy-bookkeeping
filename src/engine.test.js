@@ -165,3 +165,36 @@ describe("reports", () => {
     expect(round2(tb.dr - tb.cr)).toBe(0);
   });
 });
+
+describe("audit and lock over masters", async () => {
+  const { logEvent, openingLockReason, regroupLockReason, lockLoosens } = await import("./engine.js");
+  it("logs master events newest first without dropping earlier ones", () => {
+    const { db } = books();
+    db.audit = Array.from({ length: 900 }, (_, i) => ({ id: String(i) }));
+    const a = logEvent(db, "edit", "Ledger: Rent", "Opening 0.00 Dr → 5,000.00 Dr", new Date(2026, 9, 27, 9, 5, 7));
+    expect(a).toHaveLength(901);
+    expect(a[0]).toMatchObject({ kind: "master", action: "edit", subject: "Ledger: Rent", ts: "2026-10-27 09:05:07" });
+  });
+  it("blocks opening balance edits while a lock is set", () => {
+    const { db } = books();
+    expect(openingLockReason(db)).toBe("");
+    db.company.lockDate = "2026-06-30";
+    expect(openingLockReason(db)).not.toBe("");
+  });
+  it("blocks regrouping a ledger that has entries in the locked period", () => {
+    const { db, id } = books();
+    db.company.lockDate = "2026-06-30";
+    const rent = db.ledgers.find((l) => l.name === "Rent");
+    expect(regroupLockReason(db, rent)).toBe("");
+    db.vouchers.push(v("Payment", "2026-07-01", [{ ledger: id("Rent"), dr: 1, cr: 0 }, { ledger: id("Cash"), dr: 0, cr: 1 }]));
+    expect(regroupLockReason(db, rent)).toBe(""); // after the lock: fine
+    db.vouchers.push(v("Payment", "2026-06-01", [{ ledger: id("Rent"), dr: 1, cr: 0 }, { ledger: id("Cash"), dr: 0, cr: 1 }]));
+    expect(regroupLockReason(db, rent)).not.toBe("");
+  });
+  it("treats clearing or moving the lock earlier as loosening", () => {
+    expect(lockLoosens("2026-06-30", "")).toBe(true);
+    expect(lockLoosens("2026-06-30", "2026-03-31")).toBe(true);
+    expect(lockLoosens("2026-06-30", "2026-09-30")).toBe(false);
+    expect(lockLoosens("", "2026-06-30")).toBe(false);
+  });
+});

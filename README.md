@@ -82,8 +82,9 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 - **Reconciliation** at both ends: statement opening against the books the day before, and statement closing against the books on the statement's last date, so a difference is traced to before or within the statement.
 
 ### Controls (the CA part)
-- **Audit trail.** Every voucher create, edit and delete is logged with timestamp and full entry detail, and the log is never truncated. Changes to masters and settings are not logged yet.
-- **Period lock.** Freeze books up to a date so filed periods cannot be altered.
+- **Audit trail.** Every voucher create, edit and delete is logged with timestamp and full entry detail, as is every change to ledgers (create, rename, regroup, opening balance, delete), auto-rules, period lock, books-beginning date, GST setting, restore and reset. The log is never truncated.
+- **Period lock.** Freeze books up to a date so filed periods cannot be altered: no vouchers on or before it, no opening balance changes, and no regrouping of ledgers used in the locked period. Clearing the lock or moving it earlier asks first and is logged.
+- **Ledgers can be renamed or moved to another group** without touching vouchers.
 - **Financial year aware.** April to March, rolling over by itself on 1 April, with a configurable books-beginning date.
 - **Optional GST helper.** Builds the CGST/SGST or IGST split for Sales and Purchase vouchers from a taxable value and rate.
 

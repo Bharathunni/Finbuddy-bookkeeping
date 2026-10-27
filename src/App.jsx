@@ -14,6 +14,7 @@ import { Share } from "@capacitor/share";
 import {
   STATEMENT_GROUPS, round2, inr, uid, todayStr, localStamp, isValidDate, fyStartFor, fyLabel,
   seedDb, backupError, migrate, makeCalc, computePL, cumulativeProfit, trialBalance, validateVoucher,
+  logEvent, balText, openingLockReason, regroupLockReason, lockLoosens,
   detectDateOrder, autoMap, statementRows, statementClosing, statementOpening, statementStart, addDays, statementEnd, bankDupCounts, findDuplicates, matchRule,
 } from "./engine.js";
 import { DEMO, KEY } from "./config.js";
@@ -111,13 +112,14 @@ export default function App() {
   }, []);
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
 
+  const closeModal = useCallback((val) => { const r = resolver.current; resolver.current = null; setModal(null); if (r) r(val); }, []);
   const ui = useMemo(() => ({
+    close: closeModal,
     confirm: (o) => new Promise((res) => { resolver.current = res; setModal({ kind: "confirm", ...o }); }),
     prompt: (o) => new Promise((res) => { resolver.current = res; setModal({ kind: "prompt", value: o.default || "", ...o }); }),
     alert: (o) => new Promise((res) => { resolver.current = res; setModal({ kind: "alert", ...o }); }),
     show: (o) => new Promise((res) => { resolver.current = res; setModal({ kind: "content", ...o }); }),
-  }), []);
-  const closeModal = (val) => { const r = resolver.current; resolver.current = null; setModal(null); if (r) r(val); };
+  }), [closeModal]);
 
   const calc = useMemo(() => (db ? makeCalc(db) : null), [db]);
 
@@ -643,20 +645,36 @@ function Masters({ db, calc, save, flash, ui }) {
   const addLedger = () => {
     if (!name.trim()) return flash("Enter a ledger name");
     if (db.ledgers.some((l) => l.name.toLowerCase() === name.trim().toLowerCase())) return flash("Ledger already exists");
-    save({ ...db, ledgers: [...db.ledgers, { id: uid(), name: name.trim(), group, ob: round2(Number(ob) || 0), drcr }] });
+    const l = { id: uid(), name: name.trim(), group, ob: round2(Number(ob) || 0), drcr };
+    save({ ...db, ledgers: [...db.ledgers, l], audit: logEvent(db, "create", `Ledger: ${l.name}`, `Under ${grpName(db, group)}${l.ob ? `, opening ${balText(l.ob, drcr)}` : ""}`) });
     setName(""); setOb(""); flash("Ledger created");
   };
   const delLedger = async (l) => {
     if (db.vouchers.some((v) => v.entries.some((e) => e.ledger === l.id))) return flash("Ledger is used in vouchers — cannot delete");
     const rules = db.rules.filter((r) => r.ledger === l.id).length;
     const ok = await ui.confirm({ title: "Delete ledger", message: `Delete "${l.name}"?${rules ? ` ${rules} auto-rule${rules > 1 ? "s" : ""} posting to it will be removed too.` : ""}`, danger: true, ok: "Delete" }); if (!ok) return;
-    save({ ...db, ledgers: db.ledgers.filter((x) => x.id !== l.id), rules: db.rules.filter((r) => r.ledger !== l.id) });
+    save({ ...db, ledgers: db.ledgers.filter((x) => x.id !== l.id), rules: db.rules.filter((r) => r.ledger !== l.id), audit: logEvent(db, "delete", `Ledger: ${l.name}`, `Was under ${grpName(db, l.group)}${l.ob ? `, opening ${balText(l.ob, l.drcr)}` : ""}${rules ? `; ${rules} auto-rule${rules > 1 ? "s" : ""} removed` : ""}`) });
   };
   const editOb = async (l) => {
-    const val = await ui.prompt({ title: "Opening balance", message: `${l.name} — enter opening balance (negative = Cr)`, default: String((l.drcr === "Cr" ? -1 : 1) * (l.ob || 0)) });
-    if (val == null) return; const n = round2(Number(val) || 0);
-    save({ ...db, ledgers: db.ledgers.map((x) => (x.id === l.id ? { ...x, ob: Math.abs(n), drcr: n < 0 ? "Cr" : "Dr" } : x)) });
+    const locked = openingLockReason(db); if (locked) return ui.alert({ title: "Opening balance locked", message: locked });
+    const val = await ui.prompt({ title: "Opening balance", message: `${l.name}: enter opening balance (negative = Cr)`, default: String((l.drcr === "Cr" ? -1 : 1) * (l.ob || 0)) });
+    if (val == null) return;
+    const n = Number(String(val).replace(/[,\s₹]/g, ""));
+    if (!isFinite(n)) return flash("Enter a number, e.g. 25000 or -25000");
+    const nb = round2(n), next = { ob: Math.abs(nb), drcr: nb < 0 ? "Cr" : "Dr" };
+    if (next.ob === round2(Number(l.ob) || 0) && (next.drcr === l.drcr || !next.ob)) return;
+    save({ ...db, ledgers: db.ledgers.map((x) => (x.id === l.id ? { ...x, ...next } : x)), audit: logEvent(db, "edit", `Ledger: ${l.name}`, `Opening ${balText(l.ob, l.drcr)} → ${balText(next.ob, next.drcr)}`) });
   };
+  const editLedger = (l) => ui.show({ title: "Edit ledger", node: <LedgerEditor db={db} ledger={l} onDone={(patch) => {
+    ui.close();
+    if (!patch) return;
+    const changes = [];
+    if (patch.name !== l.name) changes.push(`Renamed "${l.name}" → "${patch.name}"`);
+    if (patch.group !== l.group) changes.push(`Moved ${grpName(db, l.group)} → ${grpName(db, patch.group)}`);
+    if (!changes.length) return;
+    save({ ...db, ledgers: db.ledgers.map((x) => (x.id === l.id ? { ...x, ...patch } : x)), audit: logEvent(db, "edit", `Ledger: ${patch.name}`, changes.join("; ")) });
+    flash("Ledger updated");
+  }} /> });
   const grouped = db.groups.map((g) => ({ g, leds: db.ledgers.filter((l) => l.group === g.id) })).filter((x) => x.leds.length);
 
   return (
@@ -686,7 +704,7 @@ function Masters({ db, calc, save, flash, ui }) {
                   <td style={{ ...td, width: "50%" }}>{l.name}</td>
                   <td style={{ ...td, color: C.sub, fontSize: 12, cursor: "pointer" }} onClick={() => editOb(l)}>{l.ob ? `Op ${inr(l.ob)} ${l.drcr}` : <span style={{ color: "#9AA" }}>set opening</span>}</td>
                   <td style={{ ...td, ...num, fontWeight: 600 }}>{inr(Math.abs(bal))} {bal >= 0 ? "Dr" : "Cr"}</td>
-                  <td style={{ ...td, width: 30 }}><button onClick={() => delLedger(l)} style={iconBtn}><Trash2 size={13} color={C.loss} /></button></td>
+                  <td style={{ ...td, width: 60, whiteSpace: "nowrap" }}><button onClick={() => editLedger(l)} style={iconBtn} aria-label={`Edit ${l.name}`} title="Rename / change group"><Pencil size={13} color={C.ink2} /></button><button onClick={() => delLedger(l)} style={iconBtn} aria-label={`Delete ${l.name}`}><Trash2 size={13} color={C.loss} /></button></td>
                 </tr>); })}
             </tbody></table>
           </div>)}
@@ -704,10 +722,36 @@ function Masters({ db, calc, save, flash, ui }) {
     </div>
   );
 }
+function grpName(db, id) { return db.groups.find((g) => g.id === id)?.name || "—"; }
+function LedgerEditor({ db, ledger, onDone }) {
+  const [name, setName] = useState(ledger.name);
+  const [group, setGroup] = useState(ledger.group);
+  const lockReason = regroupLockReason(db, ledger);
+  const n = name.trim();
+  const clash = db.ledgers.some((x) => x.id !== ledger.id && x.name.toLowerCase() === n.toLowerCase());
+  const err = !n ? "Enter a name" : clash ? "Another ledger already has this name" : "";
+  return <div>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+      <div><Lbl>Name</Lbl><Input value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} autoFocus /></div>
+      <div><Lbl>Under group</Lbl><Select value={group} onChange={(e) => setGroup(e.target.value)} style={{ maxWidth: 220 }}>{(lockReason ? db.groups.filter((g) => g.id === ledger.group) : db.groups).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</Select></div>
+    </div>
+    {lockReason && <div style={{ fontSize: 12, color: "#8A5A00", marginTop: 8 }}>{lockReason}</div>}
+    {err && <div style={{ fontSize: 12, color: C.loss, marginTop: 8 }}>{err}</div>}
+    <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>Existing vouchers follow the ledger automatically. The change is recorded in the audit trail.</div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+      <Btn tone="ghost" size="sm" onClick={() => onDone(null)}>Cancel</Btn>
+      <Btn size="sm" disabled={!!err} onClick={() => onDone({ name: n, group })}>Save</Btn>
+    </div>
+  </div>;
+}
 function RulesEditor({ db, save, flash }) {
   const [kw, setKw] = useState(""); const [led, setLed] = useState("");
-  const add = () => { if (!kw.trim() || !led) return flash("Enter keyword and ledger"); save({ ...db, rules: [...db.rules, { id: uid(), kw: kw.trim().toLowerCase(), ledger: led }] }); setKw(""); setLed(""); flash("Rule added"); };
-  const del = (id) => save({ ...db, rules: db.rules.filter((r) => r.id !== id) });
+  const add = () => {
+    if (!kw.trim() || !led) return flash("Enter keyword and ledger");
+    const r = { id: uid(), kw: kw.trim().toLowerCase(), ledger: led };
+    save({ ...db, rules: [...db.rules, r], audit: logEvent(db, "create", "Auto-rule", `"${r.kw}" → ${ledName(db, led)}`) }); setKw(""); setLed(""); flash("Rule added");
+  };
+  const del = (id) => { const r = db.rules.find((x) => x.id === id); save({ ...db, rules: db.rules.filter((x) => x.id !== id), audit: logEvent(db, "delete", "Auto-rule", `"${r?.kw}" → ${ledName(db, r?.ledger)}`) }); };
   const active = db.rules.filter((r) => r.ledger);
   return (
     <Card title="Auto-categorisation rules" right={<span style={{ fontSize: 12, color: C.sub }}>First matching keyword wins</span>}>
@@ -852,16 +896,16 @@ function LedgerReport({ db, to }) {
 function AuditTrail({ db }) {
   return (
     <div>
-      <H title="Audit Trail" sub="Immutable log of every create, edit and delete — the edit-log Indian accounting software must retain." />
+      <H title="Audit Trail" sub="Every voucher create, edit and delete, and every change to ledgers, opening balances, rules, period lock and settings. Never truncated." />
       <Card title={`${db.audit.length} events`}>
         {db.audit.length === 0 ? <Empty msg="No activity yet." /> :
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Timestamp</th><th style={th}>Action</th><th style={th}>Voucher</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Detail</th></tr></thead>
+            <thead><tr><th style={th}>Timestamp</th><th style={th}>Action</th><th style={th}>What</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Detail</th></tr></thead>
             <tbody>{db.audit.map((a) => <tr key={a.id}>
               <td style={{ ...td, fontFamily: mono, fontSize: 11.5 }}>{a.ts.includes("T") ? localStamp(new Date(a.ts)) : a.ts}</td>
               <td style={td}><Pill tone={a.action === "delete" ? "bad" : a.action === "edit" ? "warn" : "ok"}>{a.action}</Pill></td>
-              <td style={td}>{a.vtype} #{a.no} · {a.date}</td>
-              <td style={{ ...td, ...num }}>{inr(a.amount)}</td>
+              <td style={td}>{a.kind === "master" ? a.subject : `${a.vtype} #${a.no} · ${a.date}`}</td>
+              <td style={{ ...td, ...num }}>{a.kind === "master" ? "" : inr(a.amount)}</td>
               <td style={{ ...td, fontSize: 11.5, color: C.sub }}>{a.note ? `${a.note} → ` : ""}{a.detail}</td>
             </tr>)}</tbody>
           </table>}
@@ -876,9 +920,19 @@ function AuditTrail({ db }) {
 function SettingsView({ db, save, flash, ui }) {
   const fileRef = useRef();
   const [name, setName] = useState(db.company.name);
-  const setCompany = (patch) => save({ ...db, company: { ...db.company, ...patch } });
+  const setCompany = (patch, subject, detail) => save({ ...db, company: { ...db.company, ...patch }, audit: logEvent(db, "edit", subject, detail) });
+  const setLock = async (next) => {
+    const old = db.company.lockDate || "";
+    if (next === old) return;
+    if (lockLoosens(old, next)) {
+      const ok = await ui.confirm({ title: next ? "Move period lock earlier" : "Clear period lock", message: `This reopens ${next ? `${next} to ${old}` : `everything up to ${old}`} for posting, editing and deleting. The change is recorded in the audit trail.`, danger: true, ok: next ? "Move lock" : "Clear lock" });
+      if (!ok) return;
+    }
+    setCompany({ lockDate: next }, "Period lock", `${old ? `Locked up to ${old}` : "No lock"} → ${next ? `locked up to ${next}` : "no lock"}`);
+  };
+  const setBooksFrom = (next) => { const old = db.company.booksFrom || ""; if (next && next !== old) setCompany({ booksFrom: next }, "Books beginning", `${old || "not set"} → ${next}`); };
 
-  const toggleGst = (on) => { let next = { ...db, company: { ...db.company, features: { ...db.company.features, gst: on } } }; if (on) next = ensureGstLedgers(next); save(next); flash(on ? "GST enabled — helper appears on Sales/Purchase, tax ledgers created" : "GST disabled"); };
+  const toggleGst = (on) => { let next = { ...db, company: { ...db.company, features: { ...db.company.features, gst: on } }, audit: logEvent(db, "edit", "GST helper", on ? "Enabled" : "Disabled") }; if (on) next = ensureGstLedgers(next); save(next); flash(on ? "GST enabled — helper appears on Sales/Purchase, tax ledgers created" : "GST disabled"); };
 
   const exportJson = async () => {
     const text = JSON.stringify(db, null, 2);
@@ -907,28 +961,30 @@ function SettingsView({ db, save, flash, ui }) {
       if (why) return ui.alert({ title: "Restore failed", message: `${why}. Your books were not changed.` });
       const ok = await ui.confirm({ title: "Restore backup", message: `Replace your current books (${db.vouchers.length} vouchers) with this backup (${(d.vouchers || []).length} vouchers, ${d.company?.name || "unnamed"})? Export a backup of the current books first if you may need them.`, danger: true, ok: "Replace books" });
       if (!ok) return;
-      save(migrate(d)); flash("Backup restored");
+      const restored = migrate(d);
+      restored.audit = logEvent(restored, "edit", "Books restored", `From backup file ${f.name} (${restored.vouchers.length} vouchers). Replaced books had ${db.vouchers.length} vouchers.`);
+      save(restored); flash("Backup restored");
     };
     r.readAsText(f);
   };
-  const reset = async () => { const ok = await ui.confirm({ title: "Reset company", message: "Erase all ledgers, vouchers and audit log, and start a fresh company? Export a backup first.", danger: true, ok: "Erase everything" }); if (ok) { save(seedDb()); flash("Reset done"); } };
+  const reset = async () => { const ok = await ui.confirm({ title: "Reset company", message: "Erase all ledgers, vouchers and audit log, and start a fresh company? Export a backup first.", danger: true, ok: "Erase everything" }); if (ok) { const fresh = seedDb(); fresh.audit = logEvent(fresh, "delete", "Company reset", `Previous books "${db.company.name}" had ${db.vouchers.length} vouchers and ${db.ledgers.length} ledgers`); save(fresh); flash("Reset done"); } };
 
   return (
     <div>
       <H title="Settings" sub="All data is stored on this device and autosaves on every change. Uninstalling wipes it — export a JSON backup to move your books to another device." />
       <Card title="Company & financial year">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div><Lbl>Name</Lbl><Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setCompany({ name: name || "My Company" })} style={{ width: 220 }} /></div>
-          <div><Lbl>Books beginning</Lbl><Input type="date" value={db.company.booksFrom} onChange={(e) => setCompany({ booksFrom: e.target.value })} /></div>
+          <div><Lbl>Name</Lbl><Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { const n = name.trim() || "My Company"; if (n !== db.company.name) setCompany({ name: n }, "Company name", `"${db.company.name}" → "${n}"`); }} style={{ width: 220 }} /></div>
+          <div><Lbl>Books beginning</Lbl><Input type="date" value={db.company.booksFrom} onChange={(e) => setBooksFrom(e.target.value)} /></div>
         </div>
         <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>Financial year runs April to March and moves to the new year by itself on 1 April. Current: FY {fyLabel(fyStartFor(todayStr()))}.</div>
       </Card>
       <Card title="Period lock" right={<Lock size={15} color={C.sub} />}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div><Lbl>Freeze all vouchers on/before</Lbl><Input type="date" value={db.company.lockDate || ""} onChange={(e) => setCompany({ lockDate: e.target.value })} /></div>
-          {db.company.lockDate && <Btn size="sm" tone="ghost" onClick={() => setCompany({ lockDate: "" })}>Clear lock</Btn>}
+          <div><Lbl>Freeze all vouchers on/before</Lbl><Input type="date" value={db.company.lockDate || ""} onChange={(e) => setLock(e.target.value)} /></div>
+          {db.company.lockDate && <Btn size="sm" tone="ghost" onClick={() => setLock("")}>Clear lock</Btn>}
         </div>
-        <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>Locked-period vouchers cannot be posted, edited or deleted — use this after finalising/filing a period.</div>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>Locked-period vouchers cannot be posted, edited or deleted, and opening balances cannot change. Use this after finalising or filing a period. Clearing or moving the lock earlier asks first and is logged.</div>
       </Card>
       <Card title="GST (optional)">
         <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 }}>
