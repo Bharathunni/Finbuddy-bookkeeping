@@ -355,3 +355,85 @@ export function regroupLockReason(db, ledger) {
 }
 // Moving the lock earlier or clearing it reopens filed periods, so it needs an explicit confirmation.
 export function lockLoosens(oldLock, newLock) { return !!oldLock && (!newLock || newLock < oldLock); }
+
+/* ---------- Balance Sheet and ledger statement ---------- */
+export function balanceSheet(db, calc, to) {
+  const np = cumulativeProfit(db, calc, to); // cumulative so it ties across years
+  const bsGroups = db.groups.filter((g) => !g.pl);
+  const collect = (nature) => {
+    const out = [];
+    for (const g of bsGroups.filter((x) => x.nature === nature && !x.parent)) {
+      const kids = [g, ...db.groups.filter((x) => x.parent === g.id)]; let sum = 0;
+      for (const k of kids) for (const l of db.ledgers.filter((x) => x.group === k.id)) { const bal = calc.closing(l.id, to); sum += nature === "Asset" ? bal : -bal; }
+      if (Math.abs(sum) > 0.005) out.push({ name: g.name, v: round2(sum) });
+    }
+    return out;
+  };
+  const liab = collect("Liability"), assets = collect("Asset");
+  const liabTotal = round2(liab.reduce((s, x) => s + x.v, 0) + (np > 0 ? np : 0));
+  const assetTotal = round2(assets.reduce((s, x) => s + x.v, 0) + (np < 0 ? -np : 0));
+  const diff = round2(liabTotal - assetTotal);
+  return { liab, assets, np, liabTotal, assetTotal, diff, grand: Math.max(liabTotal, assetTotal) };
+}
+export function ledgerStatement(db, id, to) {
+  const led = db.ledgers.find((l) => l.id === id);
+  const opening = led ? (led.drcr === "Cr" ? -1 : 1) * round2(Number(led.ob) || 0) : 0;
+  const rows = []; let run = opening;
+  db.vouchers.filter((v) => !to || v.date <= to).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).forEach((v) => v.entries.forEach((e) => {
+    if (e.ledger !== id) return;
+    const dr = Number(e.dr) || 0, cr = Number(e.cr) || 0; run = round2(run + dr - cr);
+    rows.push({ date: v.date, type: v.type, no: v.no, narr: v.narration || "", dr, cr, bal: run });
+  }));
+  return { opening, rows, closing: run };
+}
+
+/* ---------- CSV export (opens in Excel / Sheets) ---------- */
+// Amounts are written as plain numbers (1234.50, no lakh commas) so the spreadsheet can add them up.
+export const csvNum = (n) => (n === "" || n == null ? "" : round2(n).toFixed(2));
+export function toCsv(rows) {
+  const cell = (c) => { const t = c == null ? "" : String(c); return /[",\n\r]/.test(t) || /^[=+\-@]/.test(t) && isNaN(Number(t)) ? `"${t.replace(/"/g, '""')}"` : t; };
+  // Leading BOM so Excel reads ₹ and other UTF-8 text correctly.
+  return "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
+}
+const drCr = (b) => [b > 0 ? csvNum(b) : "", b < 0 ? csvNum(-b) : ""];
+export function reportRows(kind, db, calc, { from, to, ledgerId } = {}) {
+  const head = (title, period) => [[db.company.name], [title], [period], []];
+  if (kind === "tb") {
+    const t = trialBalance(db, calc, to);
+    return [...head("Trial Balance", `As on ${to}`), ["Ledger", "Group", "Debit", "Credit"], ...t.rows.map((r) => [r.name, r.group, ...drCr(r.bal)]), ["Total", "", csvNum(t.dr), csvNum(t.cr)]];
+  }
+  if (kind === "pl") {
+    const p = computePL(db, calc, from, to);
+    const sec = (label, lines) => lines.map((x) => [label, x.name, csvNum(x.v)]);
+    return [...head("Trading and Profit & Loss Account", `${from} to ${to}`), ["Section", "Ledger", "Amount"],
+      ...sec("Trading Dr: Purchases & Direct Expenses", p.lines.tradeDr), ...sec("Trading Cr: Sales & Direct Incomes", p.lines.tradeCr),
+      ["Gross " + (p.grossProfit >= 0 ? "Profit" : "Loss"), "", csvNum(Math.abs(p.grossProfit))],
+      ...sec("P&L Dr: Indirect Expenses", p.lines.indDr), ...sec("P&L Cr: Indirect Incomes", p.lines.indCr),
+      ["Net " + (p.netProfit >= 0 ? "Profit" : "Loss"), "", csvNum(Math.abs(p.netProfit))]];
+  }
+  if (kind === "bs") {
+    const b = balanceSheet(db, calc, to);
+    const out = [...head("Balance Sheet", `As on ${to}`), ["Side", "Head", "Amount"], ...b.liab.map((x) => ["Liabilities", x.name, csvNum(x.v)])];
+    if (b.np > 0) out.push(["Liabilities", "Profit & Loss A/c", csvNum(b.np)]);
+    out.push(...b.assets.map((x) => ["Assets", x.name, csvNum(x.v)]));
+    if (b.np < 0) out.push(["Assets", "Profit & Loss A/c (Loss)", csvNum(-b.np)]);
+    out.push(["Total liabilities", "", csvNum(b.liabTotal)], ["Total assets", "", csvNum(b.assetTotal)]);
+    if (Math.abs(b.diff) > 0.005) out.push(["Difference", "", csvNum(b.diff)]);
+    return out;
+  }
+  if (kind === "ledger") {
+    const led = db.ledgers.find((l) => l.id === ledgerId); const s = ledgerStatement(db, ledgerId, to);
+    return [...head(`Ledger: ${led?.name || ""}`, `Up to ${to}`), ["Date", "Voucher", "No.", "Narration", "Debit", "Credit", "Balance", "Dr/Cr"],
+      ["", "Opening Balance", "", "", "", "", csvNum(Math.abs(s.opening)), s.opening >= 0 ? "Dr" : "Cr"],
+      ...s.rows.map((r) => [r.date, r.type, r.no, r.narr, r.dr ? csvNum(r.dr) : "", r.cr ? csvNum(r.cr) : "", csvNum(Math.abs(r.bal)), r.bal >= 0 ? "Dr" : "Cr"]),
+      ["", "Closing Balance", "", "", "", "", csvNum(Math.abs(s.closing)), s.closing >= 0 ? "Dr" : "Cr"]];
+  }
+  if (kind === "daybook") {
+    const name = new Map(db.ledgers.map((l) => [l.id, l.name]));
+    const out = [...head("Day Book", from || to ? `${from || "start"} to ${to || "date"}` : "All vouchers"), ["Date", "Voucher", "No.", "Ledger", "Debit", "Credit", "Narration"]];
+    [...db.vouchers].filter((v) => (!from || v.date >= from) && (!to || v.date <= to)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .forEach((v) => v.entries.forEach((e, i) => out.push([v.date, v.type, v.no, name.get(e.ledger) || "", Number(e.dr) ? csvNum(e.dr) : "", Number(e.cr) ? csvNum(e.cr) : "", i === 0 ? v.narration || "" : ""])));
+    return out;
+  }
+  return [];
+}

@@ -71,6 +71,7 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 - **Balance Sheet** as at any date, with cumulative profit so it ties across financial years.
 - **Ledger statement** with running balance.
 - **Dashboard** showing cash and bank position, FY-to-date profit, debtors, creditors and recent activity.
+- **Excel / CSV export** of the Trial Balance, P&L, Balance Sheet, any ledger and the Day Book. Amounts are plain numbers so the spreadsheet can total them; on Android the file goes to the share sheet.
 
 ### Bank statement import
 - Import any bank's or credit card's **CSV** export. Date, narration, withdrawal, deposit and balance columns are auto-detected, as is a single signed **Amount** column with or without a separate `Dr/Cr` column. The header row and each column can be overridden.

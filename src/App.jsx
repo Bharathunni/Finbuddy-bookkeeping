@@ -13,7 +13,8 @@ import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 import {
   STATEMENT_GROUPS, round2, inr, uid, todayStr, localStamp, isValidDate, fyStartFor, fyLabel,
-  seedDb, backupError, migrate, makeCalc, computePL, cumulativeProfit, trialBalance, validateVoucher,
+  seedDb, backupError, migrate, makeCalc, computePL, trialBalance, validateVoucher,
+  balanceSheet, ledgerStatement, reportRows, toCsv,
   logEvent, balText, openingLockReason, regroupLockReason, lockLoosens,
   detectDateOrder, autoMap, statementRows, statementClosing, statementOpening, statementStart, addDays, statementEnd, bankDupCounts, findDuplicates, matchRule,
 } from "./engine.js";
@@ -69,6 +70,28 @@ function persist(db) {
   });
   return writeChain;
 }
+/* Hand a file to the user: Android share sheet on the APK (save to Files / Drive / send),
+   a normal download in the browser. Returns false when neither worked. */
+async function deliverFile(filename, text, mime, title) {
+  if (IS_NATIVE) {
+    try {
+      const res = await Filesystem.writeFile({ path: filename, data: text, directory: Directory.Cache, encoding: Encoding.UTF8 });
+      await Share.share({ title, text: title, url: res.uri, dialogTitle: `Save or send: ${filename}` });
+      return true;
+    } catch { return false; }
+  }
+  try {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000); return true;
+  } catch { return false; }
+}
+const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "report";
+async function exportCsv(kind, db, calc, opts, flash) {
+  const label = { tb: "trial-balance", pl: "profit-loss", bs: "balance-sheet", ledger: `ledger-${slug(db.ledgers.find((l) => l.id === opts.ledgerId)?.name)}`, daybook: "day-book" }[kind];
+  const ok = await deliverFile(`${slug(db.company.name)}-${label}-${opts.to || todayStr()}.csv`, toCsv(reportRows(kind, db, calc, opts)), "text/csv", "FinBuddy report");
+  flash(ok ? (IS_NATIVE ? "Report ready, choose where to save" : "Report downloaded (opens in Excel)") : "Could not export the report");
+}
+
 /* Phone-width screens get a compact icon rail instead of the full sidebar. */
 const NARROW_MQ = "(max-width: 700px)";
 function useNarrow() {
@@ -189,7 +212,7 @@ export default function App() {
             {tab === "vouchers" && <Vouchers db={db} save={save} flash={flash} ui={ui} pendingType={pendingType} clearPending={() => setPendingType(null)} />}
             {tab === "bank" && <BankImport db={db} calc={calc} save={save} flash={flash} />}
             {tab === "masters" && <Masters db={db} calc={calc} save={save} flash={flash} ui={ui} />}
-            {tab === "reports" && <Reports db={db} calc={calc} />}
+            {tab === "reports" && <Reports db={db} calc={calc} flash={flash} />}
             {tab === "audit" && <AuditTrail db={db} />}
             {tab === "settings" && <SettingsView db={db} save={save} flash={flash} ui={ui} />}
           </div>
@@ -421,7 +444,7 @@ function Vouchers({ db, save, flash, ui, pendingType, clearPending }) {
         </div>
       </Card>
 
-      <Card title="Day Book" right={<div style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 8, top: 8, color: C.sub }} /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" style={{ paddingLeft: 26, width: 180 }} /></div>}>
+      <Card title="Day Book" right={<div style={{ display: "flex", gap: 8, alignItems: "center" }}><Btn size="sm" tone="ghost" onClick={() => exportCsv("daybook", db, null, {}, flash)}><Download size={14} /> CSV</Btn><div style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 8, top: 8, color: C.sub }} /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" style={{ paddingLeft: 26, width: 150 }} /></div></div>}>
         {dayBook.length === 0 ? <Empty msg="No vouchers match." /> :
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={th}>Date</th><th style={th}>Type · No.</th><th style={th}>Particulars</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={{ ...th, width: 60 }}></th></tr></thead>
@@ -771,10 +794,11 @@ function RulesEditor({ db, save, flash }) {
 /* =========================================================================
    REPORTS  (period selector; P&L = period, BS = as-at, TB = as-at)
    ========================================================================= */
-function Reports({ db, calc }) {
+function Reports({ db, calc, flash }) {
   const [rep, setRep] = useState("tb");
   const [from, setFrom] = useState(() => fyStartFor(todayStr()));
   const [to, setTo] = useState(() => todayStr());
+  const [ledgerId, setLedgerId] = useState(db.ledgers[0]?.id || "");
   return (
     <div>
       <H title="Reports" sub="Computed live. Profit & Loss is period-bound; Balance Sheet and Trial Balance are as-at the To date." />
@@ -783,12 +807,13 @@ function Reports({ db, calc }) {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.sub }}>
           {rep === "pl" && <>From <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></>}
           {rep === "pl" ? "To" : "As on"} <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Btn size="sm" tone="ghost" onClick={() => exportCsv(rep, db, calc, { from, to, ledgerId }, flash)}><Download size={14} /> Excel / CSV</Btn>
         </div>
       </div>
       {rep === "tb" && <TrialBalance db={db} calc={calc} to={to} />}
       {rep === "pl" && <ProfitLoss db={db} calc={calc} from={from} to={to} />}
       {rep === "bs" && <BalanceSheet db={db} calc={calc} to={to} />}
-      {rep === "ledger" && <LedgerReport db={db} to={to} />}
+      {rep === "ledger" && <LedgerReport db={db} to={to} id={ledgerId} setId={setLedgerId} />}
     </div>
   );
 }
@@ -843,22 +868,7 @@ function Col({ title, lines, tail, plug, grand }) {
   </div>;
 }
 function BalanceSheet({ db, calc, to }) {
-  const np = cumulativeProfit(db, calc, to); // cumulative so it ties across years
-  const bsGroups = db.groups.filter((g) => !g.pl);
-  const collect = (nature) => {
-    const out = [];
-    for (const g of bsGroups.filter((x) => x.nature === nature && !x.parent)) {
-      const kids = [g, ...db.groups.filter((x) => x.parent === g.id)]; let sum = 0;
-      for (const k of kids) for (const l of db.ledgers.filter((x) => x.group === k.id)) { const bal = calc.closing(l.id, to); sum += nature === "Asset" ? bal : -bal; }
-      if (Math.abs(sum) > 0.005) out.push({ name: g.name, v: round2(sum) });
-    }
-    return out;
-  };
-  const liab = collect("Liability"), assets = collect("Asset");
-  let liabTotal = round2(liab.reduce((s, x) => s + x.v, 0) + (np > 0 ? np : 0));
-  let assetTotal = round2(assets.reduce((s, x) => s + x.v, 0) + (np < 0 ? -np : 0));
-  const diff = round2(liabTotal - assetTotal);
-  const grand = Math.max(liabTotal, assetTotal);
+  const { liab, assets, np, diff, grand } = useMemo(() => balanceSheet(db, calc, to), [db, calc, to]);
   return (
     <Card title="Balance Sheet" right={<Pill tone={Math.abs(diff) < 0.01 ? "ok" : "bad"}>{Math.abs(diff) < 0.01 ? "Balanced" : `Diff ₹${inr(diff)}`}</Pill>}>
       <div className="fb-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -869,20 +879,15 @@ function BalanceSheet({ db, calc, to }) {
     </Card>
   );
 }
-function LedgerReport({ db, to }) {
-  const [id, setId] = useState(db.ledgers[0]?.id || "");
-  const led = db.ledgers.find((l) => l.id === id);
-  const opening = led ? (led.drcr === "Cr" ? -1 : 1) * (Number(led.ob) || 0) : 0;
-  const entries = [];
-  db.vouchers.filter((v) => !to || v.date <= to).sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((v) => v.entries.forEach((e) => { if (e.ledger === id) entries.push({ date: v.date, type: v.type, no: v.no, narr: v.narration, dr: e.dr, cr: e.cr }); }));
-  let run = opening;
+function LedgerReport({ db, to, id, setId }) {
+  const { opening, rows: entries, closing: run } = useMemo(() => ledgerStatement(db, id, to), [db, id, to]);
   return (
     <Card title="Ledger" right={<LedgerPicker db={db} value={id} onChange={setId} />}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead><tr><th style={th}>Date</th><th style={th}>Particulars</th><th style={{ ...th, textAlign: "right" }}>Debit</th><th style={{ ...th, textAlign: "right" }}>Credit</th><th style={{ ...th, textAlign: "right" }}>Balance</th></tr></thead>
         <tbody>
           <tr><td style={td} colSpan={4}><i style={{ color: C.sub }}>Opening Balance</i></td><td style={{ ...td, ...num }}>{inr(Math.abs(opening))} {opening >= 0 ? "Dr" : "Cr"}</td></tr>
-          {entries.map((e, i) => { run = round2(run + (Number(e.dr) || 0) - (Number(e.cr) || 0)); return <tr key={i}><td style={td}>{e.date}</td><td style={{ ...td, fontSize: 12 }}>{e.type} #{e.no}{e.narr ? ` · ${e.narr}` : ""}</td><td style={{ ...td, ...num }}>{e.dr ? inr(e.dr) : ""}</td><td style={{ ...td, ...num }}>{e.cr ? inr(e.cr) : ""}</td><td style={{ ...td, ...num, color: C.sub }}>{inr(Math.abs(run))} {run >= 0 ? "Dr" : "Cr"}</td></tr>; })}
+          {entries.map((e, i) => <tr key={i}><td style={td}>{e.date}</td><td style={{ ...td, fontSize: 12 }}>{e.type} #{e.no}{e.narr ? ` · ${e.narr}` : ""}</td><td style={{ ...td, ...num }}>{e.dr ? inr(e.dr) : ""}</td><td style={{ ...td, ...num }}>{e.cr ? inr(e.cr) : ""}</td><td style={{ ...td, ...num, color: C.sub }}>{inr(Math.abs(e.bal))} {e.bal >= 0 ? "Dr" : "Cr"}</td></tr>)}
           <tr style={{ borderTop: `2px solid ${C.ink}` }}><td style={{ ...td, fontWeight: 700 }} colSpan={4}>Closing Balance</td><td style={{ ...td, ...num, fontWeight: 700 }}>{inr(Math.abs(run))} {run >= 0 ? "Dr" : "Cr"}</td></tr>
         </tbody>
       </table>
@@ -937,19 +942,7 @@ function SettingsView({ db, save, flash, ui }) {
   const exportJson = async () => {
     const text = JSON.stringify(db, null, 2);
     const filename = `finbuddy-backup-${todayStr()}.json`;
-    // On the APK: write a real .json file, then open Android's share sheet so you
-    // can save it to Files / Drive / send it to another device.
-    if (IS_NATIVE) {
-      try {
-        const res = await Filesystem.writeFile({ path: filename, data: text, directory: Directory.Cache, encoding: Encoding.UTF8 });
-        await Share.share({ title: "FinBuddy backup", text: "FinBuddy books backup", url: res.uri, dialogTitle: "Save or send your backup" });
-        flash("Backup file ready — choose where to save");
-        return;
-      } catch { /* fall through to copyable text */ }
-    } else {
-      try { const blob = new Blob([text], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); flash("Backup downloaded"); return; }
-      catch { /* fall through */ }
-    }
+    if (await deliverFile(filename, text, "application/json", "FinBuddy books backup")) return flash(IS_NATIVE ? "Backup file ready, choose where to save" : "Backup downloaded");
     ui.show({ title: "Backup JSON (copy & save)", node: <BackupText text={text} /> });
   };
   const importJson = (e) => {

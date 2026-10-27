@@ -198,3 +198,28 @@ describe("audit and lock over masters", async () => {
     expect(lockLoosens("", "2026-06-30")).toBe(false);
   });
 });
+
+describe("CSV export", async () => {
+  const { toCsv, reportRows, balanceSheet, ledgerStatement } = await import("./engine.js");
+  it("escapes commas, quotes and formula-like text", () => {
+    const csv = toCsv([["a,b", 'say "hi"', "=HYPERLINK(1)", "-500.00", "plain"]]);
+    expect(csv).toBe('﻿"a,b","say ""hi""","=HYPERLINK(1)",-500.00,plain\r\n');
+  });
+  it("exports reports whose totals match the on-screen engine", () => {
+    const { db, id } = books();
+    db.ledgers.find((l) => l.name === "Capital A/c").ob = 100000;
+    db.ledgers.find((l) => l.name === "HDFC Bank").ob = 100000;
+    db.vouchers.push(v("Payment", "2026-05-01", [{ ledger: id("Rent"), dr: 12000, cr: 0 }, { ledger: id("HDFC Bank"), dr: 0, cr: 12000 }], "Rent, May"));
+    const calc = makeCalc(db);
+    const tb = reportRows("tb", db, calc, { to: "2026-06-30" });
+    expect(tb.at(-1)).toEqual(["Total", "", "100000.00", "100000.00"]);
+    expect(balanceSheet(db, calc, "2026-06-30").diff).toBe(0);
+    const bs = reportRows("bs", db, calc, { to: "2026-06-30" });
+    expect(bs.find((r) => r[0] === "Assets" && r[1].startsWith("Profit"))).toEqual(["Assets", "Profit & Loss A/c (Loss)", "12000.00"]);
+    expect(ledgerStatement(db, id("HDFC Bank"), "2026-06-30").closing).toBe(88000);
+    const lr = reportRows("ledger", db, calc, { to: "2026-06-30", ledgerId: id("HDFC Bank") });
+    expect(lr.at(-1)).toEqual(["", "Closing Balance", "", "", "", "", "88000.00", "Dr"]);
+    const dbk = reportRows("daybook", db, calc, {});
+    expect(dbk.slice(-2)).toEqual([["2026-05-01", "Payment", 1, "Rent", "12000.00", "", "Rent, May"], ["2026-05-01", "Payment", 1, "HDFC Bank", "", "12000.00", ""]]);
+  });
+});
