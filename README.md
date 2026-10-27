@@ -13,7 +13,7 @@
 
 **Manage finances, the responsible way.**
 
-FinBuddy is an offline-first, double-entry bookkeeping app for Android, designed by a Chartered Accountant. It brings the discipline of professional accounting software (vouchers, groups, ledgers, trial balance, final accounts, audit trail, period lock) to a pocket-sized app, with zero cloud dependency. Your books never leave your device.
+FinBuddy is an offline-first, double-entry bookkeeping app for Android, designed by a Chartered Accountant. It brings the discipline of professional accounting software (vouchers, groups, ledgers, trial balance, final accounts, audit trail, period lock) to a pocket-sized app, with zero cloud dependency. FinBuddy itself never sends your books anywhere.
 
 It is built for freelancers, consultants, small business owners and finance-minded individuals who want real books, not a glorified expense tracker.
 
@@ -66,29 +66,32 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 - **Indian number formatting** (lakh / crore grouping: 12,34,567.00).
 
 ### Reports (computed live)
-- **Trial Balance** as at any date, with a "Balanced" check.
+- **Trial Balance** as at any date, with a "Balanced" check. Income and expense ledgers show the current financial year only, with earlier years carried as Profit & Loss A/c (b/f).
 - **Trading and Profit & Loss Account** for any period, with gross and net profit carried down correctly.
 - **Balance Sheet** as at any date, with cumulative profit so it ties across financial years.
 - **Ledger statement** with running balance.
 - **Dashboard** showing cash and bank position, FY-to-date profit, debtors, creditors and recent activity.
 
 ### Bank statement import
-- Import any bank's **CSV** export. Date, narration, withdrawal, deposit and balance columns are auto-detected, with a manual override for the header row and each column.
-- Understands common Indian date formats (`dd/mm/yyyy`, `dd-Mon-yy`, ISO) and amount formats (`₹`, commas, `Cr`/`Dr` suffixes).
-- Withdrawals become **Payment** vouchers, deposits become **Receipt** vouchers.
-- **Duplicate detection** skips transactions already in your books.
+- Import any bank's or credit card's **CSV** export. Date, narration, withdrawal, deposit and balance columns are auto-detected, as is a single signed **Amount** column with or without a separate `Dr/Cr` column. The header row and each column can be overridden.
+- Understands common date formats (`dd/mm/yyyy`, `dd-Mon-yy`, `05 April 2025`, ISO). DD/MM vs MM/DD is detected from the file and can be switched. A line whose date cannot be read is flagged and never posted.
+- Understands amount formats: `₹`, Indian commas, `Cr`/`Dr` suffixes, `(1,234.00)` negatives.
+- Money out becomes a **Payment** voucher, money in a **Receipt** voucher. Bank, overdraft and **credit card** ledgers can all be imported into.
+- **Duplicate detection** skips transactions already in your books, counting identical lines: two identical ₹2,000 ATM withdrawals with only one already booked leaves one to post.
 - **Auto-categorisation rules** (keyword to ledger), so "RENT" or "SALARY" lines are pre-assigned.
-- **Reconciliation** of statement closing balance against book balance.
+- **Reconciliation** at both ends: statement opening against the books the day before, and statement closing against the books on the statement's last date, so a difference is traced to before or within the statement.
 
 ### Controls (the CA part)
-- **Audit trail.** Every create, edit and delete is logged with timestamp and full entry detail, in line with the edit-log requirement for Indian accounting software.
+- **Audit trail.** Every voucher create, edit and delete is logged with timestamp and full entry detail, and the log is never truncated. Changes to masters and settings are not logged yet.
 - **Period lock.** Freeze books up to a date so filed periods cannot be altered.
-- **Financial year aware.** April to March by default, with a configurable books-beginning date.
+- **Financial year aware.** April to March, rolling over by itself on 1 April, with a configurable books-beginning date.
 - **Optional GST helper.** Builds the CGST/SGST or IGST split for Sales and Purchase vouchers from a taxable value and rate.
 
 ### Privacy and data
 - **100% offline.** No account, no server, no analytics, no third-party SDKs.
-- Data is stored on-device (Android SharedPreferences via Capacitor, mirrored to WebView storage) and **autosaves on every change**.
+- Data is stored on-device (Android SharedPreferences via Capacitor, mirrored to WebView storage) and **autosaves on every change**. If a save fails, the app says so instead of failing silently. If stored books ever cannot be read, the app offers them as a download instead of starting fresh over them.
+- Android's own device backup (Google account backup) may include the app's data, like any other app's.
+- **Restore** checks the backup file before touching your books and asks before replacing them.
 - **JSON backup and restore** through the Android share sheet, so you can move books between devices or keep an off-device copy.
 
 ### Usability
@@ -120,12 +123,15 @@ AI was used as leverage to build the app quickly. It is not in the runtime path.
 ### Architecture
 
 ```
-src/App.jsx
- ├─ Storage layer      loadDb / persist / migrate     on-device, versioned schema
+src/engine.js          pure functions, unit-tested in src/engine.test.js
+ ├─ Schema             backupError / migrate             validate untrusted input, versioned schema
  ├─ Engine             makeCalc (single pass, memoised) → opening / closing / movement per ledger
- │                     computePL, cumulativeProfit       → Trading, P&L, Balance Sheet
- ├─ Validation         validateVoucher                   → balance, period lock, voucher-type rules
- └─ Views              Dashboard · Vouchers · Bank Import · Masters · Reports · Audit Trail · Settings
+ │                     computePL, trialBalance           → Trading, P&L, Trial Balance, Balance Sheet
+ ├─ Validation         validateVoucher                   → balance, dates, period lock, voucher-type rules
+ └─ Statements         statementRows, findDuplicates     → CSV parsing, de-dup, reconciliation
+src/App.jsx            storage (loadDb / persist) and views:
+                       Dashboard · Vouchers · Bank Import · Masters · Reports · Audit Trail · Settings
+src/ErrorBoundary.jsx  rescue screen: stored books offered as a download if anything crashes
 ```
 
 The ledger engine indexes all voucher lines by ledger once per change and derives every report from that index, so reports stay instant even with thousands of vouchers.
@@ -163,8 +169,9 @@ npm ci
 # Run in the browser (hot reload)
 npm run dev
 
-# Lint and production web build
+# Lint, engine tests and production web build
 npm run lint
+npm test
 npm run build
 
 # Demo build, as hosted on GitHub Pages (opens on the sample books)

@@ -11,6 +11,12 @@ import { Capacitor } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import {
+  STATEMENT_GROUPS, round2, inr, uid, todayStr, localStamp, isValidDate, fyStartFor, fyLabel,
+  seedDb, backupError, migrate, makeCalc, computePL, cumulativeProfit, trialBalance, validateVoucher,
+  detectDateOrder, autoMap, statementRows, statementClosing, statementOpening, statementStart, addDays, statementEnd, bankDupCounts, findDuplicates, matchRule,
+} from "./engine.js";
+import { DEMO, KEY } from "./config.js";
 const IS_NATIVE = (() => { try { return Capacitor.isNativePlatform(); } catch { return false; } })();
 
 /* =========================================================================
@@ -28,149 +34,40 @@ const C = {
   sub: "#5A6B78", cr: "#9A3B2E", profit: "#1F7A45", loss: "#B23A2E",
 };
 const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const CASHBANK = new Set(["cash", "bank"]);
-
-/* ---------- money / format ---------- */
-const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-function inr(n) {
-  if (n === null || n === undefined || isNaN(n)) return "";
-  const neg = n < 0; let x = Math.abs(Number(n));
-  const p = x.toFixed(2).split("."); let i = p[0];
-  let last3 = i.slice(-3); let rest = i.slice(0, -3);
-  if (rest) last3 = "," + last3;
-  rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
-  return (neg ? "-" : "") + rest + last3 + "." + p[1];
-}
-const uid = () => Math.random().toString(36).slice(2, 9);
-const todayStr = () => new Date().toISOString().slice(0, 10);
-
-/* ---------- seed masters (standard Indian chart of accounts, 28 groups) ---------- */
-function seedGroups() {
-  const g = (id, name, nature, pl, parent) => ({ id, name, nature, pl: pl || null, parent: parent || null });
-  return [
-    g("cap", "Capital Account", "Liability"), g("res", "Reserves & Surplus", "Liability", null, "cap"),
-    g("ca", "Current Assets", "Asset"), g("bank", "Bank Accounts", "Asset", null, "ca"),
-    g("cash", "Cash-in-hand", "Asset", null, "ca"), g("dep", "Deposits (Asset)", "Asset", null, "ca"),
-    g("loanadv", "Loans & Advances (Asset)", "Asset", null, "ca"), g("stock", "Stock-in-hand", "Asset", null, "ca"),
-    g("debtors", "Sundry Debtors", "Asset", null, "ca"), g("cl", "Current Liabilities", "Liability"),
-    g("tax", "Duties & Taxes", "Liability", null, "cl"), g("prov", "Provisions", "Liability", null, "cl"),
-    g("creditors", "Sundry Creditors", "Liability", null, "cl"), g("fa", "Fixed Assets", "Asset"),
-    g("inv", "Investments", "Asset"), g("loanliab", "Loans (Liability)", "Liability"),
-    g("bankod", "Bank OD A/c", "Liability", null, "loanliab"), g("secured", "Secured Loans", "Liability", null, "loanliab"),
-    g("unsecured", "Unsecured Loans", "Liability", null, "loanliab"), g("suspense", "Suspense A/c", "Liability"),
-    g("miscexp", "Misc. Expenses (Asset)", "Asset"),
-    g("sales", "Sales Accounts", "Income", "Trading"), g("purchase", "Purchase Accounts", "Expense", "Trading"),
-    g("dinc", "Direct Incomes", "Income", "Trading"), g("dexp", "Direct Expenses", "Expense", "Trading"),
-    g("iinc", "Indirect Incomes", "Income", "PL"), g("iexp", "Indirect Expenses", "Expense", "PL"),
-  ];
-}
-function seedLedgers() {
-  const l = (name, group, ob = 0, drcr = "Dr") => ({ id: uid(), name, group, ob, drcr });
-  return [
-    l("Cash", "cash"), l("HDFC Bank", "bank"), l("Capital A/c", "cap", 0, "Cr"),
-    l("Sales", "sales"), l("Purchases", "purchase"), l("Bank Charges", "iexp"),
-    l("Salaries", "iexp"), l("Rent", "iexp"), l("Professional Fees", "iinc"),
-    l("Interest Received", "iinc"), l("Sundry Debtors (control)", "debtors"), l("Sundry Creditors (control)", "creditors"),
-  ];
-}
-function seedDb() {
-  const fyStart = fyStartFor(todayStr());
-  return {
-    v: 2,
-    company: { name: "My Company", fyStart, booksFrom: fyStart, lockDate: "", features: { gst: false } },
-    groups: seedGroups(), ledgers: seedLedgers(), vouchers: [], rules: [], audit: [],
-  };
-}
-function fyStartFor(date) {
-  const d = new Date(date); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
-  return `${y}-04-01`;
-}
-function fyEndFor(fyStart) { return `${Number(fyStart.slice(0, 4)) + 1}-03-31`; }
-
 /* ---------- storage (100% on-device, no cloud / no Claude) ----------
    Primary: Capacitor Preferences → native SharedPreferences on Android,
    localStorage on web. We also mirror to localStorage as a second copy.
    Every add/edit/delete calls persist(), so progress autosaves instantly. */
-// Hosted demo build (VITE_DEMO=1): starts on synthetic sample books, under its own key.
-const DEMO = import.meta.env.VITE_DEMO === "1";
-const KEY = DEMO ? "finbuddy_demo_db_v2" : "finbuddy_db_v2";
+
+// Returns the books, null when nothing is stored, or throws when something IS stored but
+// cannot be read: starting a fresh company then would overwrite the real books on the next save.
 async function loadDb() {
-  try { const r = await Preferences.get({ key: KEY }); if (r && r.value) return migrate(JSON.parse(r.value)); } catch { /* best-effort */ }
-  try { const ls = localStorage.getItem(KEY); if (ls) return migrate(JSON.parse(ls)); } catch { /* best-effort */ }
+  const stored = [];
+  try { const r = await Preferences.get({ key: KEY }); if (r && r.value) stored.push(r.value); } catch { /* storage unavailable */ }
+  try { const ls = localStorage.getItem(KEY); if (ls) stored.push(ls); } catch { /* storage unavailable */ }
+  for (const text of stored) {
+    try { const d = JSON.parse(text); if (!backupError(d)) return migrate(d); } catch { /* try the other copy */ }
+  }
+  if (stored.length) throw new Error("Saved books on this device could not be read. Nothing has been overwritten.");
   return null;
 }
 async function demoDb() {
   const m = await import("../docs/demo-books.json");
   return migrate(structuredClone(m.default));
 }
-async function persist(db) {
+// Writes run one after another so an older snapshot can never land after a newer one.
+// Resolves to "" on success, or a reason when NEITHER copy could be written.
+let writeChain = Promise.resolve("");
+function persist(db) {
   const s = JSON.stringify(db);
-  try { await Preferences.set({ key: KEY, value: s }); } catch { /* best-effort */ }
-  try { localStorage.setItem(KEY, s); } catch { /* best-effort */ }
+  writeChain = writeChain.then(async () => {
+    let native = false, web = false, why = "";
+    try { await Preferences.set({ key: KEY, value: s }); native = true; } catch (e) { why = e?.message || "device storage refused the write"; }
+    try { localStorage.setItem(KEY, s); web = true; } catch (e) { why = why || e?.message || "browser storage is full"; }
+    return native || web ? "" : why;
+  });
+  return writeChain;
 }
-function migrate(db) {
-  if (!db.company.features) db.company.features = { gst: false };
-  if (db.company.lockDate === undefined) db.company.lockDate = "";
-  if (!db.audit) db.audit = [];
-  return db;
-}
-
-/* ---------- ENGINE (single pass, memoized) ---------- */
-function makeCalc(db) {
-  const byLed = {};
-  db.ledgers.forEach((l) => (byLed[l.id] = []));
-  db.vouchers.forEach((v) => v.entries.forEach((e) => {
-    if (byLed[e.ledger]) byLed[e.ledger].push({ date: v.date, dr: Number(e.dr) || 0, cr: Number(e.cr) || 0 });
-  }));
-  const opening = (id) => { const l = db.ledgers.find((x) => x.id === id); return l ? (l.drcr === "Cr" ? -1 : 1) * round2(Number(l.ob) || 0) : 0; };
-  const closing = (id, to) => { let s = opening(id); for (const e of byLed[id] || []) if (!to || e.date <= to) s += e.dr - e.cr; return round2(s); };
-  const movement = (id, from, to) => { let s = 0; for (const e of byLed[id] || []) if ((!from || e.date >= from) && (!to || e.date <= to)) s += e.dr - e.cr; return round2(s); };
-  const openingImbalance = round2(db.ledgers.reduce((s, l) => s + opening(l.id), 0)); // should be 0
-  return { byLed, opening, closing, movement, openingImbalance };
-}
-function computePL(db, calc, from, to) {
-  const lines = { tradeDr: [], tradeCr: [], indDr: [], indCr: [] };
-  let tradeDr = 0, tradeCr = 0, indDr = 0, indCr = 0;
-  for (const l of db.ledgers) {
-    const g = db.groups.find((x) => x.id === l.group); if (!g || !g.pl) continue;
-    const mv = calc.movement(l.id, from, to);
-    if (Math.abs(mv) < 0.005) continue;
-    if (g.pl === "Trading") {
-      if (g.nature === "Expense") { tradeDr = round2(tradeDr + mv); lines.tradeDr.push({ name: l.name, v: mv }); }
-      else { tradeCr = round2(tradeCr - mv); lines.tradeCr.push({ name: l.name, v: -mv }); }
-    } else {
-      if (g.nature === "Expense") { indDr = round2(indDr + mv); lines.indDr.push({ name: l.name, v: mv }); }
-      else { indCr = round2(indCr - mv); lines.indCr.push({ name: l.name, v: -mv }); }
-    }
-  }
-  const grossProfit = round2(tradeCr - tradeDr);
-  const netProfit = round2(grossProfit + indCr - indDr);
-  return { tradeDr, tradeCr, indDr, indCr, grossProfit, netProfit, lines };
-}
-// Cumulative net profit (books start .. to) — used to make the Balance Sheet tie across years.
-function cumulativeProfit(db, calc, to) { return computePL(db, calc, null, to).netProfit; }
-
-/* ---------- validation ---------- */
-function validateVoucher(db, type, date, entries, lockDate, booksFrom) {
-  const warn = [], err = [];
-  const grpOf = (id) => db.ledgers.find((l) => l.id === id)?.group;
-  const eff = entries.filter((e) => e.ledger && ((Number(e.dr) || 0) > 0 || (Number(e.cr) || 0) > 0));
-  const totalDr = round2(eff.reduce((s, e) => s + (Number(e.dr) || 0), 0));
-  const totalCr = round2(eff.reduce((s, e) => s + (Number(e.cr) || 0), 0));
-  if (eff.length < 2) err.push("Need at least two ledger lines with amounts");
-  if (Math.abs(totalDr - totalCr) > 0.005 || totalDr <= 0) err.push("Debit must equal Credit and be greater than zero");
-  if (lockDate && date <= lockDate) err.push(`Period locked up to ${lockDate} — cannot post on/before this date`);
-  const grps = eff.map((e) => grpOf(e.ledger));
-  if (type === "Contra" && !grps.every((g) => CASHBANK.has(g))) err.push("Contra allows only Cash / Bank ledgers");
-  if ((type === "Payment" || type === "Receipt") && !grps.some((g) => CASHBANK.has(g))) warn.push(`${type} normally includes a Cash/Bank ledger`);
-  if (type === "Journal" && grps.some((g) => CASHBANK.has(g))) warn.push("Journal normally excludes Cash/Bank (use Payment/Receipt/Contra)");
-  if (type === "Sales" && !grps.includes("sales")) warn.push("Sales voucher normally credits a Sales-group ledger");
-  if (type === "Purchase" && !grps.includes("purchase")) warn.push("Purchase voucher normally debits a Purchase-group ledger");
-  if (booksFrom && date < booksFrom) warn.push(`Date is before books beginning (${booksFrom})`);
-  if (date > todayStr()) warn.push("Date is in the future");
-  return { warn, err, totalDr, totalCr, balanced: err.length === 0 };
-}
-
 /* Phone-width screens get a compact icon rail instead of the full sidebar. */
 const NARROW_MQ = "(max-width: 700px)";
 function useNarrow() {
@@ -192,19 +89,21 @@ export default function App() {
   const [tab, setTab] = useState("dash");
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
+  const [saveError, setSaveError] = useState("");
+  const [loadError, setLoadError] = useState(null);
   const narrow = useNarrow();
   const resolver = useRef(null);
   const dbRef = useRef(null);
 
-  useEffect(() => { loadDb().then(async (d) => setDb(d || (DEMO ? await demoDb() : seedDb()))); }, []);
+  useEffect(() => { loadDb().then(async (d) => setDb(d || (DEMO ? await demoDb() : seedDb())), setLoadError); }, []);
   useEffect(() => { dbRef.current = db; }, [db]);
 
   // Autosave: write to device storage immediately on every change.
-  const save = useCallback((next) => { dbRef.current = next; setDb(next); persist(next); }, []);
+  const save = useCallback((next) => { dbRef.current = next; setDb(next); persist(next).then(setSaveError); }, []);
 
   // Safety flush when the app is backgrounded or closed (Android minimise / tab hide).
   useEffect(() => {
-    const flush = () => { if (dbRef.current) persist(dbRef.current); };
+    const flush = () => { if (dbRef.current) persist(dbRef.current).then(setSaveError); };
     const onVis = () => { if (document.visibilityState === "hidden") flush(); };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVis);
@@ -231,6 +130,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  if (loadError) throw loadError; // ErrorBoundary offers the stored books as a download
   if (!db || !calc) return <div style={{ minHeight: 500, display: "grid", placeItems: "center", background: C.paper, color: C.sub, fontFamily: "system-ui" }}>Loading your books…</div>;
 
   const nav = [
@@ -260,7 +160,7 @@ export default function App() {
               </button>); })}
           </nav>
           {!narrow && <div style={{ padding: 12, fontSize: 10.5, color: "#6E859C", borderTop: "1px solid rgba(255,255,255,.08)" }}>
-            FY {db.company.fyStart.slice(0, 4)}–{Number(db.company.fyStart.slice(0, 4)) + 1}{db.company.lockDate ? ` · locked ≤ ${db.company.lockDate}` : ""}
+            FY {fyLabel(fyStartFor(todayStr()))}{db.company.lockDate ? ` · locked ≤ ${db.company.lockDate}` : ""}
           </div>}
         </aside>
 
@@ -270,6 +170,11 @@ export default function App() {
               <span><b>Live demo</b> with synthetic sample books. Changes stay in this browser only.</span>
               <a href={`${import.meta.env.BASE_URL}sample-bank-statement.csv`} download style={{ color: C.ink2, fontWeight: 600 }}>Sample bank CSV</a>
               <button onClick={async () => save(await demoDb())} style={{ border: `1px solid ${C.line}`, background: "#fff", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>Reset demo</button>
+            </div>
+          )}
+          {saveError && (
+            <div role="alert" style={{ background: "#FBE4E1", color: C.loss, padding: "8px 16px", fontSize: 12.5, display: "flex", gap: 8, alignItems: "center", borderBottom: `1px solid ${C.line}` }}>
+              <AlertTriangle size={14} /> <span><b>Not saved.</b> Your last change could not be written to this device ({saveError}). Export a backup from Settings now.</span>
             </div>
           )}
           {Math.abs(calc.openingImbalance) > 0.005 && (
@@ -372,8 +277,8 @@ function LedgerPicker({ db, value, onChange, exclude, style }) {
 
 /* ---------- audit helper ---------- */
 function pushAudit(db, action, v, note) {
-  const entry = { id: uid(), ts: new Date().toISOString(), action, vtype: v.type, no: v.no, date: v.date, amount: round2(v.entries.reduce((s, e) => s + (Number(e.dr) || 0), 0)), note: note || "", detail: v.entries.map((e) => `${e.dr ? "Dr" : "Cr"} ${ledName(db, e.ledger)} ${inr(e.dr || e.cr)}`).join(" · ") };
-  return [entry, ...db.audit].slice(0, 800);
+  const entry = { id: uid(), ts: localStamp(), action, vtype: v.type, no: v.no, date: v.date, amount: round2(v.entries.reduce((s, e) => s + (Number(e.dr) || 0), 0)), note: note || "", detail: v.entries.map((e) => `${e.dr ? "Dr" : "Cr"} ${ledName(db, e.ledger)} ${inr(e.dr || e.cr)}`).join(" · ") };
+  return [entry, ...db.audit];
 }
 const nextNo = (db, type) => db.vouchers.filter((v) => v.type === type).reduce((m, v) => Math.max(m, v.no || 0), 0) + 1;
 
@@ -382,15 +287,18 @@ const nextNo = (db, type) => db.vouchers.filter((v) => v.type === type).reduce((
    ========================================================================= */
 function Dashboard({ db, calc, setTab }) {
   const to = todayStr();
-  const pl = useMemo(() => computePL(db, calc, db.company.fyStart, to), [db, calc, to]);
-  const cash = db.ledgers.filter((l) => CASHBANK.has(l.group)).reduce((s, l) => s + calc.closing(l.id, to), 0);
+  const fy = fyStartFor(to);
+  const pl = useMemo(() => computePL(db, calc, fy, to), [db, calc, fy, to]);
+  const cash = db.ledgers.filter((l) => l.group === "cash" || l.group === "bank").reduce((s, l) => s + calc.closing(l.id, to), 0);
+  const cardDues = db.ledgers.filter((l) => l.group === "card" || l.group === "bankod").reduce((s, l) => s - calc.closing(l.id, to), 0);
   const debtors = db.ledgers.filter((l) => l.group === "debtors").reduce((s, l) => s + calc.closing(l.id, to), 0);
   const creditors = db.ledgers.filter((l) => l.group === "creditors").reduce((s, l) => s + Math.max(0, -calc.closing(l.id, to)), 0);
   const tiles = [
     { label: "Cash & Bank", v: cash, color: C.profit },
-    { label: `Net P/(L) FY${db.company.fyStart.slice(2, 4)}`, v: pl.netProfit, color: pl.netProfit >= 0 ? C.profit : C.loss, sign: true },
+    { label: `Net P/(L) FY ${fyLabel(fy)}`, v: pl.netProfit, color: pl.netProfit >= 0 ? C.profit : C.loss, sign: true },
     { label: "Sundry Debtors", v: debtors, color: C.text },
     { label: "Sundry Creditors", v: creditors, color: C.cr },
+    ...(db.ledgers.some((l) => l.group === "card" || l.group === "bankod") ? [{ label: "Cards & OD owed", v: cardDues, color: C.cr }] : []),
   ];
   const recent = [...db.vouchers].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
   return (
@@ -449,7 +357,7 @@ function Vouchers({ db, save, flash, ui, pendingType, clearPending }) {
     if (editingId) {
       const old = db.vouchers.find((v) => v.id === editingId);
       if (old && db.company.lockDate && old.date <= db.company.lockDate) return flash("Original voucher is in a locked period");
-      const nv = { ...old, type, date, narration, entries };
+      const nv = { ...old, type, date, narration, entries, no: type === old.type ? old.no : nextNo(db, type) };
       const audit = pushAudit(db, "edit", nv, `was: ${old.entries.map((e) => `${e.dr ? "Dr" : "Cr"} ${ledName(db, e.ledger)} ${inr(e.dr || e.cr)}`).join(" · ")}`);
       save({ ...db, vouchers: db.vouchers.map((v) => (v.id === editingId ? nv : v)), audit });
       flash(`${type} #${nv.no} updated`);
@@ -554,7 +462,8 @@ function GstHelper({ db, type, onBuild, flash }) {
   const build = () => {
     const t = round2(Number(taxable) || 0), r = Number(rate) || 0;
     if (!party || !main || t <= 0) return flash("Pick party, main ledger and a taxable amount");
-    const tax = round2(t * r / 100), half = round2(tax / 2), otherHalf = round2(tax - half), total = round2(t + tax);
+    // CGST and SGST are each levied at half the rate on the taxable value, so they are always equal.
+    const half = round2(t * r / 200), otherHalf = half, tax = inter ? round2(t * r / 100) : round2(half * 2), total = round2(t + tax);
     let rows;
     if (type === "Sales") {
       rows = inter
@@ -589,52 +498,52 @@ function GstHelper({ db, type, onBuild, flash }) {
 /* =========================================================================
    BANK IMPORT  (header override, de-dup, reconciliation, audit)
    ========================================================================= */
-function parseNum(s) { if (s == null) return 0; const t = String(s).replace(/[₹,\s]/g, "").replace(/(cr|dr)$/i, "").trim(); const n = parseFloat(t); return isNaN(n) ? 0 : round2(n); }
-function normDate(s) {
-  if (!s) return ""; s = String(s).trim();
-  const mo = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" }; let m;
-  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
-  if ((m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/))) { let [, d, mm, y] = m; if (y.length === 2) y = "20" + y; return `${y}-${mm.padStart(2, "0")}-${d.padStart(2, "0")}`; }
-  if ((m = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})/))) { let [, d, mm, y] = m; if (y.length === 2) y = "20" + y; return `${y}-${mo[mm.toLowerCase()] || "01"}-${d.padStart(2, "0")}`; }
-  return s;
-}
-function bankDupSet(db) {
-  const set = new Set();
-  db.vouchers.forEach((v) => { if (v.type !== "Receipt" && v.type !== "Payment") return; v.entries.forEach((e) => { const g = db.ledgers.find((l) => l.id === e.ledger)?.group; if (CASHBANK.has(g)) set.add(`${e.ledger}|${v.date}|${round2((Number(e.dr) || 0) + (Number(e.cr) || 0))}|${(v.narration || "").trim().toLowerCase()}`); }); });
-  return set;
-}
 function BankImport({ db, calc, save, flash }) {
   const [rawRows, setRawRows] = useState(null);
   const [headerIdx, setHeaderIdx] = useState(0);
-  const [map, setMap] = useState({ date: -1, narr: -1, wd: -1, dep: -1, bal: -1 });
-  const [bankLedger, setBankLedger] = useState(db.ledgers.find((l) => l.group === "bank")?.id || "");
+  const [map, setMap] = useState({ date: -1, narr: -1, wd: -1, dep: -1, bal: -1, amt: -1, type: -1 });
+  const [order, setOrder] = useState("dmy");
+  const stmtLedgers = db.ledgers.filter((l) => STATEMENT_GROUPS.has(l.group));
+  const [bankLedger, setBankLedger] = useState(stmtLedgers[0]?.id || "");
   const [txns, setTxns] = useState([]);
   const fileRef = useRef();
-  const bankLedgers = db.ledgers.filter((l) => l.group === "bank");
-  const dupSet = useMemo(() => bankDupSet(db), [db]);
+  const dupCounts = useMemo(() => bankDupCounts(db), [db]);
 
-  const autoMap = (headers) => { const h = headers.map((x) => String(x || "").toLowerCase()); const find = (...k) => h.findIndex((c) => k.some((x) => c.includes(x))); return { date: find("txn date", "value date", "date"), narr: find("narration", "description", "particular", "remark", "detail"), wd: find("withdrawal", "debit", "paid out", "dr amount"), dep: find("deposit", "credit", "paid in", "cr amount"), bal: find("balance") }; };
-  const ingest = (rows) => { let h = 0; for (let i = 0; i < Math.min(rows.length, 30); i++) { const j = rows[i].join(" ").toLowerCase(); if (/date/.test(j) && /(narration|description|particular|withdraw|deposit|debit|credit|amount|balance)/.test(j)) { h = i; break; } } setRawRows(rows); setHeaderIdx(h); const m = autoMap(rows[h] || []); setMap(m); build(rows, h, m); };
-  const build = (rows, h, m) => { const out = []; for (let i = h + 1; i < rows.length; i++) { const r = rows[i]; if (!r || r.every((c) => !String(c).trim())) continue; const wd = m.wd >= 0 ? parseNum(r[m.wd]) : 0, dep = m.dep >= 0 ? parseNum(r[m.dep]) : 0; if (!wd && !dep) continue; const narr = m.narr >= 0 ? String(r[m.narr] || "").trim() : ""; out.push({ id: uid(), date: normDate(m.date >= 0 ? r[m.date] : ""), narr, amount: wd || dep, dir: wd ? "out" : "in", bal: m.bal >= 0 ? parseNum(r[m.bal]) : null, counter: matchRule(db, narr), include: true }); } setTxns(out); };
-
-  const onFile = (e) => { const f = e.target.files[0]; if (!f) return; Papa.parse(f, { skipEmptyLines: true, complete: (res) => { if (res.data?.length) ingest(res.data); else flash("Could not read file"); } }); };
+  const build = (rows, h, m, ord) => setTxns(statementRows(rows, h, m, ord).map((t) => ({ ...t, id: uid(), counter: matchRule(db, t.narr), include: true })));
+  const ingest = (rows) => {
+    let h = 0;
+    for (let i = 0; i < Math.min(rows.length, 30); i++) { const j = rows[i].join(" ").toLowerCase(); if (/date/.test(j) && /(narration|description|particular|withdraw|deposit|debit|credit|amount|balance)/.test(j)) { h = i; break; } }
+    const m = autoMap(rows[h] || []);
+    const ord = detectDateOrder(m.date >= 0 ? rows.slice(h + 1).map((r) => r[m.date]) : []);
+    setRawRows(rows); setHeaderIdx(h); setMap(m); setOrder(ord); build(rows, h, m, ord);
+  };
+  const onFile = (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; Papa.parse(f, { skipEmptyLines: true, complete: (res) => { if (res.data?.length) ingest(res.data); else flash("Could not read file"); } }); };
   const onPaste = (text) => { const res = Papa.parse(text.trim(), { skipEmptyLines: true }); if (res.data?.length) ingest(res.data); };
-  const remap = (f, idx) => { const m = { ...map, [f]: idx }; setMap(m); if (rawRows) build(rawRows, headerIdx, m); };
-  const setHeader = (idx) => { setHeaderIdx(idx); const m = autoMap(rawRows[idx] || []); setMap(m); build(rawRows, idx, m); };
+  const remap = (f, idx) => { const m = { ...map, [f]: idx }; setMap(m); if (rawRows) build(rawRows, headerIdx, m, order); };
+  const setHeader = (idx) => { const m = autoMap(rawRows[idx] || []); setHeaderIdx(idx); setMap(m); build(rawRows, idx, m, order); };
+  const changeOrder = (ord) => { setOrder(ord); if (rawRows) build(rawRows, headerIdx, map, ord); };
   const setTxn = (id, patch) => setTxns(txns.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
-  const isDup = (t) => bankLedger && dupSet.has(`${bankLedger}|${t.date}|${round2(t.amount)}|${t.narr.trim().toLowerCase()}`);
-  const chosen = txns.filter((t) => t.include && t.counter && t.amount > 0 && !isDup(t));
-  const dupCount = txns.filter((t) => isDup(t) && t.include).length;
+  const dups = useMemo(() => findDuplicates(txns, dupCounts, bankLedger), [txns, dupCounts, bankLedger]);
+  const badDate = (t) => !isValidDate(t.date);
+  const chosen = txns.filter((t) => t.include && t.counter && t.amount > 0 && !dups.has(t.id) && !badDate(t));
+  const dupCount = txns.filter((t) => dups.has(t.id)).length;
+  const badCount = txns.filter(badDate).length;
 
-  // reconciliation
-  const stmtClosing = useMemo(() => { const withBal = txns.filter((t) => t.bal != null); return withBal.length ? withBal[withBal.length - 1].bal : null; }, [txns]);
+  // Reconciliation, as at the statement's last date (later vouchers in the books are not on this statement).
+  const stmtClosing = useMemo(() => statementClosing(txns), [txns]);
+  const stmtTo = useMemo(() => statementEnd(txns), [txns]);
   const netSelected = chosen.reduce((s, t) => s + (t.dir === "in" ? t.amount : -t.amount), 0);
-  const bookAfter = bankLedger ? round2(calc.closing(bankLedger, null) + netSelected) : null;
+  const bookAfter = bankLedger && stmtTo ? round2(calc.closing(bankLedger, stmtTo) + netSelected) : null;
+  const stmtOpening = useMemo(() => statementOpening(txns), [txns]);
+  const stmtFrom = useMemo(() => statementStart(txns), [txns]);
+  const bookOpening = bankLedger && stmtFrom ? calc.closing(bankLedger, addDays(stmtFrom, -1)) : null;
+  const openingDiff = stmtOpening != null && bookOpening != null ? round2(stmtOpening - bookOpening) : 0;
+  const unassigned = txns.filter((t) => t.include && !t.counter && !dups.has(t.id) && !badDate(t)).length;
 
   const postAll = () => {
-    if (!bankLedger) return flash("Pick a bank ledger");
-    if (!chosen.length) return flash("No rows ready (assign counter ledgers; duplicates are skipped)");
+    if (!bankLedger) return flash("Pick a bank / card ledger");
+    if (!chosen.length) return flash("No rows ready (assign counter ledgers; duplicates and bad dates are skipped)");
     if (db.company.lockDate && chosen.some((t) => t.date <= db.company.lockDate)) return flash(`Some rows fall in the locked period (≤ ${db.company.lockDate})`);
     let counters = {}; db.vouchers.forEach((v) => { counters[v.type] = Math.max(counters[v.type] || 0, v.no || 0); });
     const newV = chosen.map((t) => { const type = t.dir === "in" ? "Receipt" : "Payment"; counters[type] = (counters[type] || 0) + 1;
@@ -643,19 +552,24 @@ function BankImport({ db, calc, save, flash }) {
     let audit = db.audit; newV.forEach((v) => (audit = pushAudit({ ...db, audit }, "create", v, "bank import")));
     save({ ...db, vouchers: [...db.vouchers, ...newV], audit });
     flash(`${newV.length} vouchers posted${dupCount ? ` · ${dupCount} duplicates skipped` : ""}`);
-    setTxns(txns.filter((t) => !(t.include && t.counter && !isDup(t))));
+    const posted = new Set(chosen.map((t) => t.id));
+    setTxns(txns.filter((t) => !posted.has(t.id)));
   };
+
+  const cols = map.wd >= 0 || map.dep >= 0 || map.amt < 0
+    ? [["date", "Date"], ["narr", "Narration"], ["wd", "Withdrawal (out)"], ["dep", "Deposit (in)"], ["bal", "Balance"], ["amt", "Amount (single column)"]]
+    : [["date", "Date"], ["narr", "Narration"], ["amt", "Amount"], ["type", "Dr / Cr column"], ["bal", "Balance"], ["wd", "Withdrawal (out)"], ["dep", "Deposit (in)"]];
 
   return (
     <div>
-      <H title="Bank Import" sub="Withdrawal → Payment (Cr Bank). Deposit → Receipt (Dr Bank). Duplicates are detected and skipped; statement balance is reconciled." />
+      <H title="Bank Import" sub="Bank or credit card statement. Money out → Payment, money in → Receipt. Duplicates are detected and skipped; statement balance is reconciled." />
 
       <Card title="1 · Load statement">
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: "none" }} />
             <Btn tone="dark" onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose CSV</Btn>
-            <div style={{ fontSize: 11.5, color: C.sub, marginTop: 6, maxWidth: 230 }}>Metadata rows above the table are auto-skipped. Dates are read as DD/MM/YYYY (Indian).</div>
+            <div style={{ fontSize: 11.5, color: C.sub, marginTop: 6, maxWidth: 230 }}>Metadata rows above the table are auto-skipped. Date format (DD/MM or MM/DD) is detected from the file.</div>
           </div>
           <div style={{ flex: 1, minWidth: 260 }}>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>…or paste CSV / tab-separated rows</div>
@@ -665,35 +579,47 @@ function BankImport({ db, calc, save, flash }) {
       </Card>
 
       {rawRows && (
-        <Card title="2 · Map columns" right={<div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}><span style={{ color: C.sub }}>Bank ledger</span><Select value={bankLedger} onChange={(e) => setBankLedger(e.target.value)}><option value="">Select…</option>{bankLedgers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></div>}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, fontSize: 12.5, color: C.sub }}>
+        <Card title="2 · Map columns" right={<div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}><span style={{ color: C.sub }}>Account</span><Select value={bankLedger} onChange={(e) => setBankLedger(e.target.value)}><option value="">Select…</option>{stmtLedgers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></div>}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, fontSize: 12.5, color: C.sub, flexWrap: "wrap" }}>
             Header row:
-            <Select value={headerIdx} onChange={(e) => setHeader(Number(e.target.value))}>{rawRows.slice(0, 30).map((r, i) => <option key={i} value={i}>Row {i + 1}: {r.slice(0, 4).join(" | ").slice(0, 40)}</option>)}</Select>
+            <Select value={headerIdx} onChange={(e) => setHeader(Number(e.target.value))} style={{ maxWidth: "100%" }}>{rawRows.slice(0, 30).map((r, i) => <option key={i} value={i}>Row {i + 1}: {r.slice(0, 4).join(" | ").slice(0, 40)}</option>)}</Select>
+            Dates:
+            <Select value={order} onChange={(e) => changeOrder(e.target.value)}><option value="dmy">DD/MM/YYYY</option><option value="mdy">MM/DD/YYYY</option></Select>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
-            {[["date", "Date"], ["narr", "Narration"], ["wd", "Withdrawal (out)"], ["dep", "Deposit (in)"], ["bal", "Balance"]].map(([f, lbl]) => <div key={f}><Lbl>{lbl}</Lbl><Select value={map[f]} onChange={(e) => remap(f, Number(e.target.value))} style={{ width: "100%" }}><option value={-1}>—</option>{(rawRows[headerIdx] || []).map((h, i) => <option key={i} value={i}>{String(h || `Col ${i + 1}`).slice(0, 24)}</option>)}</Select></div>)}
+            {cols.map(([f, lbl]) => <div key={f}><Lbl>{lbl}</Lbl><Select value={map[f]} onChange={(e) => remap(f, Number(e.target.value))} style={{ width: "100%" }}><option value={-1}>—</option>{(rawRows[headerIdx] || []).map((h, i) => <option key={i} value={i}>{String(h || `Col ${i + 1}`).slice(0, 24)}</option>)}</Select></div>)}
           </div>
+          {stmtLedgers.length === 0 && <div style={{ marginTop: 10, fontSize: 12, color: C.loss }}>No bank or card ledger yet. Create one in Masters under Bank Accounts or Credit Cards.</div>}
         </Card>
       )}
 
       {txns.length > 0 && (
-        <Card title={`3 · Review & assign ledgers (${chosen.length} ready${dupCount ? `, ${dupCount} dup` : ""})`} right={<Btn onClick={postAll} disabled={!bankLedger || !chosen.length}><Check size={15} /> Post {chosen.length} vouchers</Btn>}>
-          {(stmtClosing != null && bookAfter != null) && (
-            <div style={{ display: "flex", gap: 16, fontSize: 12.5, marginBottom: 10, padding: "8px 10px", background: C.paper, borderRadius: 8, flexWrap: "wrap" }}>
-              <span>Statement closing: <b style={num}>₹{inr(stmtClosing)}</b></span>
-              <span>Book bank after posting selected: <b style={num}>₹{inr(bookAfter)}</b></span>
-              <Pill tone={Math.abs(stmtClosing - bookAfter) < 0.01 ? "ok" : "warn"}>{Math.abs(stmtClosing - bookAfter) < 0.01 ? "Reconciles" : `Diff ₹${inr(stmtClosing - bookAfter)}`}</Pill>
+        <Card title={`3 · Review & assign ledgers (${chosen.length} ready${dupCount ? `, ${dupCount} dup` : ""}${badCount ? `, ${badCount} bad date` : ""})`} right={<Btn onClick={postAll} disabled={!bankLedger || !chosen.length}><Check size={15} /> Post {chosen.length} vouchers</Btn>}>
+          {(stmtOpening != null && bookOpening != null) && (
+            <div style={{ display: "flex", gap: 16, fontSize: 12.5, marginBottom: 6, padding: "8px 10px", background: C.paper, borderRadius: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span>Statement opening: <b style={num}>₹{inr(stmtOpening)}</b></span>
+              <span>Books on {addDays(stmtFrom, -1)}: <b style={num}>₹{inr(bookOpening)}</b></span>
+              <Pill tone={Math.abs(openingDiff) < 0.01 ? "ok" : "warn"}>{Math.abs(openingDiff) < 0.01 ? "Opening agrees" : `Diff ₹${inr(openingDiff)} from before this statement`}</Pill>
             </div>
           )}
+          {(stmtClosing != null && bookAfter != null) && (
+            <div style={{ display: "flex", gap: 16, fontSize: 12.5, marginBottom: 10, padding: "8px 10px", background: C.paper, borderRadius: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span>Statement closing ({stmtTo}): <b style={num}>₹{inr(stmtClosing)}</b></span>
+              <span>Books on {stmtTo} after posting selected: <b style={num}>₹{inr(bookAfter)}</b></span>
+              <Pill tone={Math.abs(stmtClosing - bookAfter) < 0.01 ? "ok" : "warn"}>{Math.abs(stmtClosing - bookAfter) < 0.01 ? "Reconciles" : `Diff ₹${inr(stmtClosing - bookAfter)}`}</Pill>
+              {unassigned > 0 && Math.abs(stmtClosing - bookAfter) >= 0.01 && <span style={{ color: C.sub }}>{unassigned} line{unassigned > 1 ? "s" : ""} still need a counter ledger</span>}
+            </div>
+          )}
+          {badCount > 0 && <div style={{ fontSize: 12, color: C.loss, marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}><AlertTriangle size={12} /> {badCount} line{badCount > 1 ? "s have dates" : " has a date"} that could not be read. Check the Date column and the DD/MM setting above; these lines will not post.</div>}
           <div style={{ maxHeight: 340, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr><th style={{ ...th, width: 30 }}></th><th style={th}>Date</th><th style={th}>Narration</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Type</th><th style={th}>Counter ledger</th></tr></thead>
               <tbody>
-                {txns.map((t) => { const dup = isDup(t); return (
-                  <tr key={t.id} style={{ opacity: t.include && !dup ? 1 : 0.5 }}>
-                    <td style={td}><input type="checkbox" checked={t.include && !dup} disabled={dup} onChange={(e) => setTxn(t.id, { include: e.target.checked })} /></td>
-                    <td style={td}>{t.date}</td>
-                    <td style={{ ...td, maxWidth: 220, fontSize: 12 }}>{t.narr} {dup && <Pill tone="bad">Duplicate</Pill>}</td>
+                {txns.map((t) => { const dup = dups.has(t.id), bad = badDate(t); return (
+                  <tr key={t.id} style={{ opacity: t.include && !dup && !bad ? 1 : 0.5 }}>
+                    <td style={td}><input type="checkbox" aria-label="Include line" checked={t.include && !dup && !bad} disabled={dup || bad} onChange={(e) => setTxn(t.id, { include: e.target.checked })} /></td>
+                    <td style={{ ...td, whiteSpace: "nowrap", color: bad ? C.loss : C.text }}>{bad ? (t.rawDate || "no date") : t.date}</td>
+                    <td style={{ ...td, maxWidth: 220, fontSize: 12 }}>{t.narr} {dup && <Pill tone="bad">Duplicate</Pill>}{bad && <Pill tone="bad">Bad date</Pill>}</td>
                     <td style={{ ...td, ...num, color: t.dir === "out" ? C.cr : C.profit }}>{inr(t.amount)}</td>
                     <td style={td}><Pill tone={t.dir === "in" ? "ok" : "warn"}>{t.dir === "in" ? "Receipt" : "Payment"}</Pill></td>
                     <td style={td}><LedgerPicker db={db} value={t.counter} onChange={(v) => setTxn(t.id, { counter: v })} exclude={bankLedger} /></td>
@@ -707,7 +633,6 @@ function BankImport({ db, calc, save, flash }) {
     </div>
   );
 }
-function matchRule(db, narr) { const n = (narr || "").toLowerCase(); const hit = db.rules.find((r) => r.ledger && r.kw && n.includes(r.kw)); return hit ? hit.ledger : ""; }
 
 /* =========================================================================
    MASTERS
@@ -723,8 +648,9 @@ function Masters({ db, calc, save, flash, ui }) {
   };
   const delLedger = async (l) => {
     if (db.vouchers.some((v) => v.entries.some((e) => e.ledger === l.id))) return flash("Ledger is used in vouchers — cannot delete");
-    const ok = await ui.confirm({ title: "Delete ledger", message: `Delete "${l.name}"?`, danger: true, ok: "Delete" }); if (!ok) return;
-    save({ ...db, ledgers: db.ledgers.filter((x) => x.id !== l.id) });
+    const rules = db.rules.filter((r) => r.ledger === l.id).length;
+    const ok = await ui.confirm({ title: "Delete ledger", message: `Delete "${l.name}"?${rules ? ` ${rules} auto-rule${rules > 1 ? "s" : ""} posting to it will be removed too.` : ""}`, danger: true, ok: "Delete" }); if (!ok) return;
+    save({ ...db, ledgers: db.ledgers.filter((x) => x.id !== l.id), rules: db.rules.filter((r) => r.ledger !== l.id) });
   };
   const editOb = async (l) => {
     const val = await ui.prompt({ title: "Opening balance", message: `${l.name} — enter opening balance (negative = Cr)`, default: String((l.drcr === "Cr" ? -1 : 1) * (l.ob || 0)) });
@@ -803,8 +729,8 @@ function RulesEditor({ db, save, flash }) {
    ========================================================================= */
 function Reports({ db, calc }) {
   const [rep, setRep] = useState("tb");
-  const [from, setFrom] = useState(db.company.fyStart);
-  const [to, setTo] = useState(fyEndFor(db.company.fyStart) > todayStr() ? todayStr() : fyEndFor(db.company.fyStart));
+  const [from, setFrom] = useState(() => fyStartFor(todayStr()));
+  const [to, setTo] = useState(() => todayStr());
   return (
     <div>
       <H title="Reports" sub="Computed live. Profit & Loss is period-bound; Balance Sheet and Trial Balance are as-at the To date." />
@@ -823,15 +749,14 @@ function Reports({ db, calc }) {
   );
 }
 function TrialBalance({ db, calc, to }) {
-  const rows = db.ledgers.map((l) => ({ l, bal: calc.closing(l.id, to) })).filter((r) => Math.abs(r.bal) > 0.005);
-  const dr = round2(rows.filter((r) => r.bal >= 0).reduce((s, r) => s + r.bal, 0));
-  const cr = round2(rows.filter((r) => r.bal < 0).reduce((s, r) => s - r.bal, 0));
+  const { rows, dr, cr, fy } = useMemo(() => trialBalance(db, calc, to), [db, calc, to]);
   return (
-    <Card title="Trial Balance" right={<Pill tone={Math.abs(dr - cr) < 0.01 ? "ok" : "bad"}>{Math.abs(dr - cr) < 0.01 ? "Balanced" : `Diff ₹${inr(dr - cr)}`}</Pill>}>
+    <Card title={`Trial Balance as on ${to}`} right={<Pill tone={Math.abs(dr - cr) < 0.01 ? "ok" : "bad"}>{Math.abs(dr - cr) < 0.01 ? "Balanced" : `Diff ₹${inr(dr - cr)}`}</Pill>}>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>Income and expense ledgers show FY {fyLabel(fy)} only; earlier years are carried in Profit &amp; Loss A/c (b/f).</div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead><tr><th style={th}>Ledger</th><th style={th}>Group</th><th style={{ ...th, textAlign: "right" }}>Debit</th><th style={{ ...th, textAlign: "right" }}>Credit</th></tr></thead>
         <tbody>
-          {rows.map((r) => <tr key={r.l.id}><td style={td}>{r.l.name}</td><td style={{ ...td, color: C.sub, fontSize: 12 }}>{db.groups.find((g) => g.id === r.l.group)?.name}</td><td style={{ ...td, ...num }}>{r.bal >= 0 ? inr(r.bal) : ""}</td><td style={{ ...td, ...num }}>{r.bal < 0 ? inr(-r.bal) : ""}</td></tr>)}
+          {rows.map((r) => <tr key={r.id}><td style={td}>{r.name}</td><td style={{ ...td, color: C.sub, fontSize: 12 }}>{r.group}</td><td style={{ ...td, ...num }}>{r.bal > 0 ? inr(r.bal) : ""}</td><td style={{ ...td, ...num }}>{r.bal < 0 ? inr(-r.bal) : ""}</td></tr>)}
           <tr style={{ borderTop: `2px solid ${C.ink}` }}><td style={{ ...td, fontWeight: 700 }} colSpan={2}>Total</td><td style={{ ...td, ...num, fontWeight: 700 }}>{inr(dr)}</td><td style={{ ...td, ...num, fontWeight: 700 }}>{inr(cr)}</td></tr>
         </tbody>
       </table>
@@ -933,7 +858,7 @@ function AuditTrail({ db }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={th}>Timestamp</th><th style={th}>Action</th><th style={th}>Voucher</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Detail</th></tr></thead>
             <tbody>{db.audit.map((a) => <tr key={a.id}>
-              <td style={{ ...td, fontFamily: mono, fontSize: 11.5 }}>{a.ts.replace("T", " ").slice(0, 19)}</td>
+              <td style={{ ...td, fontFamily: mono, fontSize: 11.5 }}>{a.ts.includes("T") ? localStamp(new Date(a.ts)) : a.ts}</td>
               <td style={td}><Pill tone={a.action === "delete" ? "bad" : a.action === "edit" ? "warn" : "ok"}>{a.action}</Pill></td>
               <td style={td}>{a.vtype} #{a.no} · {a.date}</td>
               <td style={{ ...td, ...num }}>{inr(a.amount)}</td>
@@ -973,7 +898,19 @@ function SettingsView({ db, save, flash, ui }) {
     }
     ui.show({ title: "Backup JSON (copy & save)", node: <BackupText text={text} /> });
   };
-  const importJson = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (d.groups && d.ledgers) { save(migrate(d)); flash("Backup restored"); } else flash("Invalid file"); } catch { flash("Could not parse file"); } }; r.readAsText(f); };
+  const importJson = (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      let d; try { d = JSON.parse(r.result); } catch { return ui.alert({ title: "Restore failed", message: "This file is not valid JSON. Your books were not changed." }); }
+      const why = backupError(d);
+      if (why) return ui.alert({ title: "Restore failed", message: `${why}. Your books were not changed.` });
+      const ok = await ui.confirm({ title: "Restore backup", message: `Replace your current books (${db.vouchers.length} vouchers) with this backup (${(d.vouchers || []).length} vouchers, ${d.company?.name || "unnamed"})? Export a backup of the current books first if you may need them.`, danger: true, ok: "Replace books" });
+      if (!ok) return;
+      save(migrate(d)); flash("Backup restored");
+    };
+    r.readAsText(f);
+  };
   const reset = async () => { const ok = await ui.confirm({ title: "Reset company", message: "Erase all ledgers, vouchers and audit log, and start a fresh company? Export a backup first.", danger: true, ok: "Erase everything" }); if (ok) { save(seedDb()); flash("Reset done"); } };
 
   return (
@@ -982,9 +919,9 @@ function SettingsView({ db, save, flash, ui }) {
       <Card title="Company & financial year">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div><Lbl>Name</Lbl><Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setCompany({ name: name || "My Company" })} style={{ width: 220 }} /></div>
-          <div><Lbl>FY start</Lbl><Input type="date" value={db.company.fyStart} onChange={(e) => setCompany({ fyStart: e.target.value })} /></div>
           <div><Lbl>Books beginning</Lbl><Input type="date" value={db.company.booksFrom} onChange={(e) => setCompany({ booksFrom: e.target.value })} /></div>
         </div>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>Financial year runs April to March and moves to the new year by itself on 1 April. Current: FY {fyLabel(fyStartFor(todayStr()))}.</div>
       </Card>
       <Card title="Period lock" right={<Lock size={15} color={C.sub} />}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
