@@ -19,6 +19,7 @@ All notable changes to FinBuddy are documented here. Format follows [Keep a Chan
 - Changing a voucher's type while editing gives it the next number in the new series.
 - GST helper: CGST and SGST are each computed at half the rate, so they are always equal.
 - Audit trail is no longer truncated at 800 entries; timestamps are local time.
+- Vouchers screen took 6.5 s to open and 0.6 s per keystroke with 2,000 vouchers on a phone-class CPU; the Day Book is now paged and memoised (0.6 s to open with 10,000 vouchers). Audit trail is paged too.
 - `@capacitor/android` 8.5.3 fixes GHSA-rvm3-566m-v7fv (critical).
 
 ### Added

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
 import Papa from "papaparse";
 import {
   Book, Upload, FileText, Layers, BarChart3, Settings as Cog,
@@ -134,7 +134,7 @@ export default function App() {
     document.addEventListener("visibilitychange", onVis);
     return () => { window.removeEventListener("pagehide", flush); document.removeEventListener("visibilitychange", onVis); };
   }, []);
-  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
+  const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 2400); }, []);
 
   const closeModal = useCallback((val) => { const r = resolver.current; resolver.current = null; setModal(null); if (r) r(val); }, []);
   const ui = useMemo(() => ({
@@ -365,7 +365,6 @@ function Vouchers({ db, save, flash, ui, pendingType, clearPending }) {
   const [narration, setNarration] = useState("");
   const [rows, setRows] = useState([{ ledger: "", dr: "", cr: "" }, { ledger: "", dr: "", cr: "" }]);
   const [editingId, setEditingId] = useState(null);
-  const [q, setQ] = useState("");
 
   // One-shot handoff of the voucher type picked via F4-F9 in the parent.
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
@@ -394,16 +393,15 @@ function Vouchers({ db, save, flash, ui, pendingType, clearPending }) {
     }
     reset();
   };
-  const startEdit = (v) => { setEditingId(v.id); setType(v.type); setDate(v.date); setNarration(v.narration || ""); setRows(v.entries.map((e) => ({ ledger: e.ledger, dr: e.dr || "", cr: e.cr || "" }))); window.scrollTo?.(0, 0); };
-  const del = async (v) => {
+  const startEdit = useCallback((v) => { setEditingId(v.id); setType(v.type); setDate(v.date); setNarration(v.narration || ""); setRows(v.entries.map((e) => ({ ledger: e.ledger, dr: e.dr || "", cr: e.cr || "" }))); window.scrollTo?.(0, 0); }, []);
+  const del = useCallback(async (v) => {
     if (db.company.lockDate && v.date <= db.company.lockDate) return flash("Voucher is in a locked period");
     const ok = await ui.confirm({ title: "Delete voucher", message: `Delete ${v.type} #${v.no} dated ${v.date}? This is logged in the audit trail.`, danger: true, ok: "Delete" });
     if (!ok) return;
     save({ ...db, vouchers: db.vouchers.filter((x) => x.id !== v.id), audit: pushAudit(db, "delete", v) });
     flash("Voucher deleted");
-  };
+  }, [db, ui, save, flash]);
 
-  const dayBook = [...db.vouchers].filter((v) => !q || (v.narration || "").toLowerCase().includes(q.toLowerCase()) || v.entries.some((e) => ledName(db, e.ledger).toLowerCase().includes(q.toLowerCase()))).sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return (
     <div>
@@ -445,29 +443,56 @@ function Vouchers({ db, save, flash, ui, pendingType, clearPending }) {
         </div>
       </Card>
 
-      <Card title="Day Book" right={<div style={{ display: "flex", gap: 8, alignItems: "center" }}><Btn size="sm" tone="ghost" onClick={() => exportCsv("daybook", db, null, {}, flash)}><Download size={14} /> CSV</Btn><div style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 8, top: 8, color: C.sub }} /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" style={{ paddingLeft: 26, width: 150 }} /></div></div>}>
-        {dayBook.length === 0 ? <Empty msg="No vouchers match." /> :
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Date</th><th style={th}>Type · No.</th><th style={th}>Particulars</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={{ ...th, width: 60 }}></th></tr></thead>
-            <tbody>
-              {dayBook.map((v) => { const locked = db.company.lockDate && v.date <= db.company.lockDate; return (
-                <tr key={v.id}>
-                  <td style={{ ...td, verticalAlign: "top" }}>{v.date}{locked && <Lock size={11} color={C.sub} style={{ marginLeft: 4 }} />}</td>
-                  <td style={{ ...td, verticalAlign: "top" }}><Pill>{v.type}</Pill> <span style={{ color: C.sub, fontSize: 12 }}>#{v.no}</span></td>
-                  <td style={td}>
-                    {v.entries.map((e, ix) => <div key={ix} style={{ fontSize: 12.5, color: e.dr ? C.text : C.cr }}>{e.dr ? "Dr " : "   Cr "}{ledName(db, e.ledger)} <span style={{ ...num, color: C.sub }}>{inr(e.dr || e.cr)}</span></div>)}
-                    {v.narration && <div style={{ fontSize: 11.5, color: C.sub, fontStyle: "italic", marginTop: 2 }}>{v.narration}</div>}
-                  </td>
-                  <td style={{ ...td, ...num, verticalAlign: "top" }}>{inr(v.entries.reduce((s, e) => s + (Number(e.dr) || 0), 0))}</td>
-                  <td style={{ ...td, verticalAlign: "top" }}>
-                    {!locked && <><button onClick={() => startEdit(v)} style={iconBtn}><Pencil size={13} color={C.ink2} /></button><button onClick={() => del(v)} style={iconBtn}><Trash2 size={14} color={C.loss} /></button></>}
-                  </td>
-                </tr>); })}
-            </tbody>
-          </table>}
-      </Card>
+      <DayBook db={db} onEdit={startEdit} onDelete={del} flash={flash} />
     </div>
   );
+}
+
+/* Day Book: memoised so typing in the voucher form does not re-render it, and paged so a
+   phone never builds thousands of rows at once. */
+const PAGE = 100;
+const DayBook = memo(function DayBook({ db, onEdit, onDelete, flash }) {
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const list = useMemo(() => {
+    const name = new Map(db.ledgers.map((l) => [l.id, l.name]));
+    const n = q.trim().toLowerCase();
+    const hit = (v) => !n || (v.narration || "").toLowerCase().includes(n) || v.entries.some((e) => (name.get(e.ledger) || "").toLowerCase().includes(n));
+    const out = db.vouchers.filter(hit).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.no || 0) - (a.no || 0)));
+    return { out, name };
+  }, [db, q]);
+  const shown = list.out.slice(0, limit);
+  return (
+    <Card title="Day Book" right={<div style={{ display: "flex", gap: 8, alignItems: "center" }}><Btn size="sm" tone="ghost" onClick={() => exportCsv("daybook", db, null, {}, flash)}><Download size={14} /> CSV</Btn><div style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 8, top: 8, color: C.sub }} /><Input value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }} placeholder="Search" style={{ paddingLeft: 26, width: 150 }} /></div></div>}>
+      {list.out.length === 0 ? <Empty msg="No vouchers match." /> : <>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={th}>Date</th><th style={th}>Type · No.</th><th style={th}>Particulars</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={{ ...th, width: 60 }}></th></tr></thead>
+          <tbody>
+            {shown.map((v) => { const locked = db.company.lockDate && v.date <= db.company.lockDate; return (
+              <tr key={v.id}>
+                <td style={{ ...td, verticalAlign: "top" }}>{v.date}{locked && <Lock size={11} color={C.sub} style={{ marginLeft: 4 }} />}</td>
+                <td style={{ ...td, verticalAlign: "top" }}><Pill>{v.type}</Pill> <span style={{ color: C.sub, fontSize: 12 }}>#{v.no}</span></td>
+                <td style={td}>
+                  {v.entries.map((e, ix) => <div key={ix} style={{ fontSize: 12.5, color: e.dr ? C.text : C.cr }}>{e.dr ? "Dr " : "   Cr "}{list.name.get(e.ledger) || "—"} <span style={{ ...num, color: C.sub }}>{inr(e.dr || e.cr)}</span></div>)}
+                  {v.narration && <div style={{ fontSize: 11.5, color: C.sub, fontStyle: "italic", marginTop: 2 }}>{v.narration}</div>}
+                </td>
+                <td style={{ ...td, ...num, verticalAlign: "top" }}>{inr(v.entries.reduce((s, e) => s + (Number(e.dr) || 0), 0))}</td>
+                <td style={{ ...td, verticalAlign: "top" }}>
+                  {!locked && <><button onClick={() => onEdit(v)} style={iconBtn} aria-label={`Edit ${v.type} ${v.no}`}><Pencil size={13} color={C.ink2} /></button><button onClick={() => onDelete(v)} style={iconBtn} aria-label={`Delete ${v.type} ${v.no}`}><Trash2 size={14} color={C.loss} /></button></>}
+                </td>
+              </tr>); })}
+          </tbody>
+        </table>
+        <MoreRows shown={shown.length} total={list.out.length} onMore={() => setLimit(limit + PAGE * 2)} />
+      </>}
+    </Card>
+  );
+});
+function MoreRows({ shown, total, onMore }) {
+  return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, fontSize: 12, color: C.sub }}>
+    <span>Showing {shown} of {total}</span>
+    {shown < total && <Btn size="sm" tone="ghost" onClick={onMore}>Show {Math.min(PAGE * 2, total - shown)} more</Btn>}
+  </div>;
 }
 
 /* ---------- GST helper (only when enabled) ---------- */
@@ -900,6 +925,7 @@ function LedgerReport({ db, to, id, setId }) {
    AUDIT TRAIL  (statutory edit-log spirit)
    ========================================================================= */
 function AuditTrail({ db }) {
+  const [limit, setLimit] = useState(PAGE);
   return (
     <div>
       <H title="Audit Trail" sub="Every voucher create, edit and delete, and every change to ledgers, opening balances, rules, period lock and settings. Never truncated." />
@@ -907,7 +933,7 @@ function AuditTrail({ db }) {
         {db.audit.length === 0 ? <Empty msg="No activity yet." /> :
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={th}>Timestamp</th><th style={th}>Action</th><th style={th}>What</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Detail</th></tr></thead>
-            <tbody>{db.audit.map((a) => <tr key={a.id}>
+            <tbody>{db.audit.slice(0, limit).map((a) => <tr key={a.id}>
               <td style={{ ...td, fontFamily: mono, fontSize: 11.5 }}>{a.ts.includes("T") ? localStamp(new Date(a.ts)) : a.ts}</td>
               <td style={td}><Pill tone={a.action === "delete" ? "bad" : a.action === "edit" ? "warn" : "ok"}>{a.action}</Pill></td>
               <td style={td}>{a.kind === "master" ? a.subject : `${a.vtype} #${a.no} · ${a.date}`}</td>
@@ -915,6 +941,7 @@ function AuditTrail({ db }) {
               <td style={{ ...td, fontSize: 11.5, color: C.sub }}>{a.note ? `${a.note} → ` : ""}{a.detail}</td>
             </tr>)}</tbody>
           </table>}
+        {db.audit.length > 0 && <MoreRows shown={Math.min(limit, db.audit.length)} total={db.audit.length} onMore={() => setLimit(limit + PAGE * 2)} />}
       </Card>
     </div>
   );
