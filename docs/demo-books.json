@@ -623,6 +623,25 @@
           "cr": 375000
         }
       ]
+    },
+    {
+      "id": "rc6demo",
+      "type": "Receipt",
+      "date": "2026-09-30",
+      "no": 6,
+      "narration": "Audit fee H1, Sharma & Co",
+      "entries": [
+        {
+          "ledger": "10gul07",
+          "dr": 101500,
+          "cr": ""
+        },
+        {
+          "ledger": "dct7ufl",
+          "dr": "",
+          "cr": 101500
+        }
+      ]
     }
   ],
   "rules": [
@@ -643,6 +662,17 @@
     }
   ],
   "audit": [
+    {
+      "id": "au6demo",
+      "ts": "2026-09-30T11:40:00.000Z",
+      "action": "create",
+      "vtype": "Receipt",
+      "no": 6,
+      "date": "2026-09-30",
+      "amount": 101500,
+      "note": "",
+      "detail": "Dr HDFC Bank 1,01,500.00 \u00b7 Cr Professional Fees 1,01,500.00"
+    },
     {
       "id": "0cnr5c5",
       "ts": "2026-09-30T10:15:00.000Z",
